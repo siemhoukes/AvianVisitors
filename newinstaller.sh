@@ -43,8 +43,21 @@ if [[ ! -z $PACKAGES_MISSING ]] ; then
   sudo apt -y install $PACKAGES_MISSING
 fi
 
+# Low-memory Pis (3B+ / Zero 2W, <=1GB RAM): expand swap and disable WiFi power-save
+# per https://github.com/mcguirepr89/BirdNET-Pi/wiki/RPi0W2-Installation-Guide
+TOTAL_MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+if [ "${TOTAL_MEM_KB}" -lt 2000000 ]; then
+  echo "Low-memory Pi detected ($((TOTAL_MEM_KB / 1024)) MB RAM): expanding swap to 1024 MB"
+  sudo sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=1024/' /etc/dphys-swapfile
+  sudo sed -i 's/^#\?CONF_MAXSWAP=.*/CONF_MAXSWAP=1024/' /etc/dphys-swapfile
+  sudo systemctl restart dphys-swapfile
+  echo "Disabling WiFi power-save"
+  sudo iw wlan0 set power_save off 2>/dev/null || true
+  printf '[connection]\nwifi.powersave = 2\n' | sudo tee /etc/NetworkManager/conf.d/wifi-powersave.conf > /dev/null
+fi
+
 branch=avian-visitors
-git clone -b $branch --depth=1 https://github.com/Twarner491/AvianVisitors.git ${HOME}/BirdNET-Pi &&
+git clone -b $branch --depth=1 https://github.com/siemhoukes/AvianVisitors.git ${HOME}/BirdNET-Pi &&
 
 $HOME/BirdNET-Pi/scripts/install_birdnet.sh
 if [ ${PIPESTATUS[0]} -eq 0 ];then

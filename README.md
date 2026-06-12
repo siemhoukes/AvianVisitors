@@ -12,7 +12,7 @@ See it running at [bird.onethreenine.net](https://bird.onethreenine.net).
 
 | Qty | Description | Price | Link | Notes |
 |-----|-------------|-------|------| ----- |
-| 1 | Raspberry Pi (4B / 5 / Zero 2W) | ~$35-80 | [Raspberry Pi](https://www.raspberrypi.com/products/) | [See note for RPi20](https://github.com/mcguirepr89/BirdNET-Pi/wiki/RPi0W2-Installation-Guide) |
+| 1 | Raspberry Pi (3B+ / 4B / 5 / Zero 2W) | ~$35-80 | [Raspberry Pi](https://www.raspberrypi.com/products/) | [See note for RPi 3B+/0W2](https://github.com/mcguirepr89/BirdNET-Pi/wiki/RPi0W2-Installation-Guide) — installer handles swap + WiFi power-save automatically |
 | 1 | Micro SD Card (≥32 GB) | ~$10 | [Amazon](https://www.amazon.com/s?k=32gb+micro+sd+card&i=electronics&crid=1RCJAD1J0EPDX&sprefix=32gb+micro+sd+card%2Celectronics%2C226&ref=nb_sb_noss_1) | |
 | 1 | USB lavalier microphone | $16.95 | [Amazon](https://www.amazon.com/dp/B0176NRE1G) | |
 | 1 | Pi power supply | ~$10 | - | |
@@ -40,7 +40,7 @@ Installer assumes passwordless sudo (Raspberry Pi OS Lite default - if you've ti
 
 ```bash
 ssh <your-username>@birdnet.local
-curl -s https://raw.githubusercontent.com/Twarner491/AvianVisitors/avian-visitors/newinstaller.sh | bash
+curl -s https://raw.githubusercontent.com/siemhoukes/AvianVisitors/avian-visitors/newinstaller.sh | bash
 ```
 
 Clones this fork, installs BirdNET-Pi, symlinks the AvianVisitors overlay into the Caddy web root. Takes 20-40 minutes. Reboots when done.
@@ -74,6 +74,22 @@ See [`avian/forwarding/`](avian/forwarding/) for three independent recipes:
 - **Cloudflare Tunnel** for a public HTTPS URL.
 - **Home Assistant REST sensor** that exposes the latest detection.
 - **MQTT bridge** that publishes every new detection.
+
+---
+
+## Develop & deploy (this fork)
+
+This fork ([siemhoukes/AvianVisitors](https://github.com/siemhoukes/AvianVisitors)) is the source of truth. The installer clones it to `~/BirdNET-Pi` on the Pi, so deploying a change is:
+
+```bash
+# locally: edit, commit, push
+git push origin avian-visitors
+
+# on the Pi: pull + restart
+ssh <user>@birdnet.local "cd ~/BirdNET-Pi && git pull --ff-only && scripts/restart_services.sh"
+```
+
+To pick up upstream improvements: `git fetch upstream && git merge upstream/avian-visitors`.
 
 ---
 
