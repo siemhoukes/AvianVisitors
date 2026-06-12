@@ -1,0 +1,108 @@
+Passer domesticus|House Sparrow
+Passer montanus|Eurasian Tree Sparrow
+Turdus merula|Eurasian Blackbird
+Turdus philomelos|Song Thrush
+Turdus iliacus|Redwing
+Turdus pilaris|Fieldfare
+Turdus viscivorus|Mistle Thrush
+Parus major|Great Tit
+Cyanistes caeruleus|Eurasian Blue Tit
+Periparus ater|Coal Tit
+Lophophanes cristatus|Crested Tit
+Poecile palustris|Marsh Tit
+Aegithalos caudatus|Long-tailed Tit
+Erithacus rubecula|European Robin
+Troglodytes troglodytes|Eurasian Wren
+Prunella modularis|Dunnock
+Fringilla coelebs|Common Chaffinch
+Fringilla montifringilla|Brambling
+Chloris chloris|European Greenfinch
+Carduelis carduelis|European Goldfinch
+Spinus spinus|Eurasian Siskin
+Linaria cannabina|Eurasian Linnet
+Pyrrhula pyrrhula|Eurasian Bullfinch
+Coccothraustes coccothraustes|Hawfinch
+Sturnus vulgaris|European Starling
+Pica pica|Eurasian Magpie
+Garrulus glandarius|Eurasian Jay
+Corvus monedula|Eurasian Jackdaw
+Corvus corone|Carrion Crow
+Corvus frugilegus|Rook
+Columba palumbus|Common Wood-Pigeon
+Columba livia|Rock Pigeon
+Streptopelia decaocto|Eurasian Collared-Dove
+Psittacula krameri|Rose-ringed Parakeet
+Motacilla alba|White Wagtail
+Motacilla cinerea|Gray Wagtail
+Motacilla flava|Western Yellow Wagtail
+Phoenicurus ochruros|Black Redstart
+Phoenicurus phoenicurus|Common Redstart
+Sylvia atricapilla|Eurasian Blackcap
+Sylvia borin|Garden Warbler
+Curruca communis|Greater Whitethroat
+Phylloscopus collybita|Common Chiffchaff
+Phylloscopus trochilus|Willow Warbler
+Regulus regulus|Goldcrest
+Regulus ignicapilla|Common Firecrest
+Sitta europaea|Eurasian Nuthatch
+Certhia brachydactyla|Short-toed Treecreeper
+Acrocephalus scirpaceus|Eurasian Reed Warbler
+Acrocephalus schoenobaenus|Sedge Warbler
+Cettia cetti|Cetti's Warbler
+Luscinia megarhynchos|Common Nightingale
+Saxicola rubicola|European Stonechat
+Muscicapa striata|Spotted Flycatcher
+Ficedula hypoleuca|European Pied Flycatcher
+Dendrocopos major|Great Spotted Woodpecker
+Picus viridis|Eurasian Green Woodpecker
+Apus apus|Common Swift
+Hirundo rustica|Barn Swallow
+Delichon urbicum|Common House-Martin
+Riparia riparia|Bank Swallow
+Cuculus canorus|Common Cuckoo
+Alauda arvensis|Eurasian Skylark
+Anthus pratensis|Meadow Pipit
+Emberiza citrinella|Yellowhammer
+Emberiza schoeniclus|Reed Bunting
+Buteo buteo|Common Buzzard
+Falco tinnunculus|Eurasian Kestrel
+Falco peregrinus|Peregrine Falcon
+Accipiter nisus|Eurasian Sparrowhawk
+Accipiter gentilis|Northern Goshawk
+Circus aeruginosus|Eurasian Marsh-Harrier
+Tyto alba|Barn Owl
+Strix aluco|Tawny Owl
+Athene noctua|Little Owl
+Asio otus|Long-eared Owl
+Anas platyrhynchos|Mallard
+Aythya fuligula|Tufted Duck
+Tadorna tadorna|Common Shelduck
+Cygnus olor|Mute Swan
+Anser anser|Graylag Goose
+Anser albifrons|Greater White-fronted Goose
+Branta canadensis|Canada Goose
+Branta leucopsis|Barnacle Goose
+Fulica atra|Eurasian Coot
+Gallinula chloropus|Eurasian Moorhen
+Podiceps cristatus|Great Crested Grebe
+Tachybaptus ruficollis|Little Grebe
+Ardea cinerea|Gray Heron
+Ardea alba|Great Egret
+Egretta garzetta|Little Egret
+Ciconia ciconia|White Stork
+Phalacrocorax carbo|Great Cormorant
+Alcedo atthis|Common Kingfisher
+Vanellus vanellus|Northern Lapwing
+Haematopus ostralegus|Eurasian Oystercatcher
+Limosa limosa|Black-tailed Godwit
+Numenius arquata|Eurasian Curlew
+Tringa totanus|Common Redshank
+Recurvirostra avosetta|Pied Avocet
+Gallinago gallinago|Common Snipe
+Larus argentatus|Herring Gull
+Larus fuscus|Lesser Black-backed Gull
+Larus canus|Common Gull
+Chroicocephalus ridibundus|Black-headed Gull
+Sterna hirundo|Common Tern
+Phasianus colchicus|Ring-necked Pheasant
+Perdix perdix|Gray Partridge
