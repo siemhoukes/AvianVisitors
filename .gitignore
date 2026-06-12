@@ -60,3 +60,8 @@ whitelist_species_list.txt
 avian/assets/references/
 # Superseded assets retained locally
 avian/assets/_legacy/
+# Cream-ground generation sources, kept locally (OneDrive-synced) as a
+# backup so pale-bird cutouts can be re-cut without re-generating.
+avian/assets/_cream_source/
+# Transient fix list emitted during a re-cut pass
+avian/scripts/fix-labels.txt
