@@ -50,6 +50,9 @@ whitelist_species_list.txt
 /nbproject/private/
 .DS_Store
 
+# Secrets (API keys) — never commit
+.env
+
 # --- AvianVisitors: local-only material, deliberately not shipped ---
 # Claude Code session data
 .claude/
