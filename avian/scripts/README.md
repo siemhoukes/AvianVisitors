@@ -39,20 +39,26 @@ consistent cream ground gives a known color that BiRefNet removes cleanly,
 and the steady ground also holds the painting style together across the
 whole set. `cutout.py` is the step that makes the backgrounds transparent.
 
-### Pale birds: `cutout_flatground.py`
+### Pale birds: `cutout_holefill.py`
 
 BiRefNet still eats the white/pale parts of some birds (magpie belly,
 shelduck flank, egret, gull, swan) because those regions read as the cream
-ground. For those, use `cutout_flatground.py` instead: since the ground is
-a flat, known cream color with a margin around the bird, it flood-fills the
-cream *connected to the border* and stops at the bird's dark ink outline, so
-enclosed white stays put. It reads cream-ground sources from `--src` (keep
-them around — they're the only way to re-cut without re-generating):
+ground, leaving holes. For those, use `cutout_holefill.py`, which combines
+the strengths of BiRefNet and the flat ground:
+
+1. BiRefNet matte → clean anti-aliased outer edge, drops the cast shadow.
+2. drop small connected components → removes stray specks.
+3. fill enclosed holes → recovers the white BiRefNet punched out.
+4. composite RGB from the cream-ground **source** so the recovered interior
+   shows the real white, not the black rembg leaves behind.
+
+It reads cream-ground sources from `--src` (keep them around — they're the
+only way to re-cut without re-generating):
 
 ```bash
 # regenerate the affected species to a kept cream-source dir, then re-cut
 python3 pregen.py --labels fix-labels.txt --out ../assets/_cream_source
-python3 cutout_flatground.py --src ../assets/_cream_source   # all in --src
+python3 cutout_holefill.py --src ../assets/_cream_source   # all in --src
 python3 build_masks.py
 ```
 
