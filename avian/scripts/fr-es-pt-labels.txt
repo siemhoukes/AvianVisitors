@@ -1,0 +1,126 @@
+Prunella collaris|Alpine Accentor
+Ichthyaetus audouinii|Audouin's Gull
+Panurus biarmicus|Bearded Reedling
+Lyrurus tetrix|Black Grouse
+Milvus migrans|Black Kite
+Ciconia nigra|Black Stork
+Oenanthe leucura|Black Wheatear
+Dryocopus martius|Black Woodpecker
+Pterocles orientalis|Black-bellied Sandgrouse
+Elanus caeruleus|Black-winged Kite
+Himantopus himantopus|Black-winged Stilt
+Monticola solitarius|Blue Rock-Thrush
+Luscinia svecica|Bluethroat
+Hieraaetus pennatus|Booted Eagle
+Melanocorypha calandra|Calandra Lark
+Aegypius monachus|Cinereous Vulture
+Emberiza cirlus|Cirl Bunting
+Carduelis citrinella|Citril Finch
+Glareola pratincola|Collared Pratincole
+Grus grus|Common Crane
+Locustella naevia|Common Grasshopper-Warbler
+Aythya ferina|Common Pochard
+Coturnix coturnix|Common Quail
+Estrilda astrild|Common Waxbill
+Emberiza calandra|Corn Bunting
+Calonectris diomedea|Cory's Shearwater
+Galerida cristata|Crested Lark
+Curruca undata|Dartford Warbler
+Ptyonoprogne rupestris|Eurasian Crag-Martin
+Bubo bubo|Eurasian Eagle-Owl
+Oriolus oriolus|Eurasian Golden Oriole
+Gyps fulvus|Eurasian Griffon
+Falco subbuteo|Eurasian Hobby
+Upupa epops|Eurasian Hoopoe
+Caprimulgus europaeus|Eurasian Nightjar
+Nucifraga caryocatactes|Eurasian Nutcracker
+Remiz pendulinus|Eurasian Penduline-Tit
+Glaucidium passerinum|Eurasian Pygmy-Owl
+Otus scops|Eurasian Scops-Owl
+Platalea leucorodia|Eurasian Spoonbill
+Burhinus oedicnemus|Eurasian Thick-knee
+Certhia familiaris|Eurasian Treecreeper
+Jynx torquilla|Eurasian Wryneck
+Merops apiaster|European Bee-eater
+Pernis apivorus|European Honey-buzzard
+Coracias garrulus|European Roller
+Serinus serinus|European Serin
+Streptopelia turtur|European Turtle-Dove
+Plegadis falcinellus|Glossy Ibis
+Picus canus|Gray-headed Woodpecker
+Botaurus stellaris|Great Bittern
+Lanius excubitor|Great Gray Shrike
+Acrocephalus arundinaceus|Great Reed Warbler
+Clamator glandarius|Great Spotted Cuckoo
+Phoenicopterus roseus|Greater Flamingo
+Calandrella brachydactyla|Greater Short-toed Lark
+Gelochelidon nilotica|Gull-billed Tern
+Tetrastes bonasia|Hazel Grouse
+Circus cyaneus|Hen Harrier
+Corvus cornix|Hooded Crow
+Phylloscopus ibericus|Iberian Chiffchaff
+Lanius meridionalis|Iberian Gray Shrike
+Picus sharpei|Iberian Green Woodpecker
+Cyanopica cooki|Iberian Magpie
+Falco naumanni|Lesser Kestrel
+Dryobates minor|Lesser Spotted Woodpecker
+Curruca curruca|Lesser Whitethroat
+Tetrax tetrax|Little Bustard
+Ichthyaetus melanocephalus|Mediterranean Gull
+Alaudala rufescens|Mediterranean Short-toed Lark
+Hippolais polyglotta|Melodious Warbler
+Dendrocoptes medius|Middle Spotted Woodpecker
+Myiopsitta monachus|Monk Parakeet
+Circus pygargus|Montagu's Harrier
+Acrocephalus melanopogon|Moustached Warbler
+Morus bassanus|Northern Gannet
+Oenanthe oenanthe|Northern Wheatear
+Emberiza hortulana|Ortolan Bunting
+Apus pallidus|Pallid Swift
+Pterocles alchata|Pin-tailed Sandgrouse
+Ardea purpurea|Purple Heron
+Milvus milvus|Red Kite
+Lanius collurio|Red-backed Shrike
+Pyrrhocorax pyrrhocorax|Red-billed Chough
+Netta rufina|Red-crested Pochard
+Alectoris rufa|Red-legged Partridge
+Caprimulgus ruficollis|Red-necked Nightjar
+Cecropis daurica|Red-rumped Swallow
+Turdus torquatus|Ring Ouzel
+Emberiza cia|Rock Bunting
+Lagopus muta|Rock Ptarmigan
+Petronia petronia|Rock Sparrow
+Monticola saxatilis|Rufous-tailed Rock-Thrush
+Curruca melanocephala|Sardinian Warbler
+Locustella luscinioides|Savi's Warbler
+Circaetus gallicus|Short-toed Snake-Eagle
+Aquila adalberti|Spanish Eagle
+Passer hispaniolensis|Spanish Sparrow
+Curruca conspicillata|Spectacled Warbler
+Sturnus unicolor|Spotless Starling
+Ardeola ralloides|Squacco Heron
+Columba oenas|Stock Dove
+Anthus campestris|Tawny Pipit
+Galerida theklae|Thekla's Lark
+Anthus trivialis|Tree Pipit
+Tichodroma muraria|Wallcreeper
+Anthus spinoletta|Water Pipit
+Rallus aquaticus|Water Rail
+Oenanthe hispanica|Western Black-eared Wheatear
+Phylloscopus bonelli|Western Bonelli's Warbler
+Tetrao urogallus|Western Capercaillie
+Iduna opaca|Western Olivaceous Warbler
+Curruca hortensis|Western Orphean Warbler
+Curruca iberiae|Western Subalpine Warbler
+Porphyrio porphyrio|Western Swamphen
+Saxicola rubetra|Whinchat
+Chlidonias hybrida|Whiskered Tern
+Cinclus cinclus|White-throated Dipper
+Montifringilla nivalis|White-winged Snowfinch
+Poecile montanus|Willow Tit
+Lullula arborea|Wood Lark
+Phylloscopus sibilatrix|Wood Warbler
+Lanius senator|Woodchat Shrike
+Pyrrhocorax graculus|Yellow-billed Chough
+Larus michahellis|Yellow-legged Gull
+Cisticola juncidis|Zitting Cisticola
