@@ -6,6 +6,13 @@
 // extract + thumbnail. Cached at the browser + Caddy edge for 24 h
 // because species descriptions don't really change.
 //
+// Description language is DUTCH: we try nl.wikipedia.org first (natively
+// written Dutch prose, not a machine translation) and fall back to the
+// English article for the handful of species without a Dutch page. eBird
+// itself has no public species-description API - its pages render the
+// paywalled Birds of the World - so Dutch Wikipedia is the native-Dutch
+// source. (Bird *names* come from the eBird taxonomy; see NAMES_NL.)
+//
 // Pinned to wikimedia.org / wikipedia.org for the photo URL to block
 // SSRF if Wikipedia ever returns a poisoned redirect target.
 
@@ -29,15 +36,31 @@ $ua = getenv('AV_USER_AGENT') ?: 'AvianVisitors/1.0 (+https://github.com/Twarner
 $ctx = stream_context_create([
     'http' => ['header' => "User-Agent: $ua\r\n", 'timeout' => 8],
 ]);
-$url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' . rawurlencode($sci);
-$raw = @file_get_contents($url, false, $ctx);
-if ($raw === false) {
-    echo json_encode(['extract' => null, 'thumbnail' => null]);
-    exit;
+
+// Fetch a Wikipedia REST summary for $sci from a given language host.
+// Returns the decoded array on success, or null (network failure, non-JSON,
+// or a "not found" stub with no extract) so the caller can fall back.
+function wiki_summary(string $host, string $sci, $ctx): ?array {
+    $url = 'https://' . $host . '/api/rest_v1/page/summary/' . rawurlencode($sci);
+    $raw = @file_get_contents($url, false, $ctx);
+    if ($raw === false) return null;
+    $j = json_decode($raw, true);
+    if (!is_array($j)) return null;
+    // REST returns type=https://...#/definitions/not_found (and no extract)
+    // for missing pages; treat an empty extract as a miss so en/ can answer.
+    if (empty($j['extract'])) return null;
+    return $j;
 }
-$j = json_decode($raw, true);
-if (!is_array($j)) {
-    echo json_encode(['extract' => null, 'thumbnail' => null]);
+
+// Dutch first, English as the fallback for species without a Dutch article.
+$lang = 'nl';
+$j = wiki_summary('nl.wikipedia.org', $sci, $ctx);
+if ($j === null) {
+    $lang = 'en';
+    $j = wiki_summary('en.wikipedia.org', $sci, $ctx);
+}
+if ($j === null) {
+    echo json_encode(['extract' => null, 'thumbnail' => null, 'lang' => null]);
     exit;
 }
 
@@ -53,4 +76,5 @@ echo json_encode([
     'extract'   => $j['extract'] ?? null,
     'thumbnail' => $thumb ? ['source' => $thumb] : null,
     'title'     => $j['title'] ?? null,
+    'lang'      => $lang,
 ]);
