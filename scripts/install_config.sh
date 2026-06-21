@@ -38,6 +38,13 @@ SITE_NAME="$HOSTNAME"
 LATITUDE=$LATITUDE
 LONGITUDE=$LONGITUDE
 
+#------------------ Auto-location (travelling / caravan installs) -------------#
+#__When true, scripts/auto_location.sh updates LATITUDE/LONGITUDE from IP______#
+#__geolocation @reboot + every 6h, so a moving Pi tracks its location during a_#
+#__trip. Set to false to pin a fixed location.________________________________#
+
+AUTO_LOCATION=true
+
 #--------------------------------- Model --------------------------------------#
 #_____________The variable below configures which BirdNET model is_____________#
 #______________________used for detecting bird audio.__________________________#

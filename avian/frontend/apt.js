@@ -2,7 +2,7 @@
   var PLACEHOLDER = [{"sci":"Calypte anna","com":"Anna's Hummingbird","featured":true},{"sci":"Passer domesticus","com":"House Sparrow"},{"sci":"Haemorhous mexicanus","com":"House Finch"},{"sci":"Turdus migratorius","com":"American Robin"},{"sci":"Zenaida macroura","com":"Mourning Dove"},{"sci":"Spinus psaltria","com":"Lesser Goldfinch"},{"sci":"Zonotrichia leucophrys","com":"White-crowned Sparrow"},{"sci":"Aphelocoma californica","com":"California Scrub-Jay"},{"sci":"Mimus polyglottos","com":"Northern Mockingbird"},{"sci":"Sayornis nigricans","com":"Black Phoebe"},{"sci":"Larus occidentalis","com":"Western Gull"},{"sci":"Corvus brachyrhynchos","com":"American Crow"}];
   // Bumped whenever the offline sketch build changes, so the browser
   // doesn't keep a stale cache after we regenerate the sketches.
-  var SKETCH_VERSION = 'r14'; // re-cut 68 birds to drain leg-gaps (width-gate +
+  var SKETCH_VERSION = 'r15'; // re-cut 68 birds to drain leg-gaps (width-gate +
                               // erosion); 17 hand-touched. Library 467 species.
   // Cache-bust for /api/img - bump whenever a bird gets re-rendered via
   // /api/regen or whenever you need every CF DC to drop its cached copy.
@@ -10,7 +10,7 @@
   // equivalent to a global cache purge for /api/img. (caches.default
   // .delete() in the worker only affects ONE colo at a time, so a
   // versioned URL is the only reliable way to invalidate everywhere.)
-  var IMG_VERSION = 'r14'; // re-cut 68 birds (leg-gap fix); drop cached copies.
+  var IMG_VERSION = 'r15'; // r15: Merel eye recolor + female->male flight recolor.
 
   // ---- Sliding pill helper ----
   // Each segmented control has a single .seg-pill element that we move via
@@ -55,7 +55,7 @@
   // Each view's title text. The shared static-head shows one of these
   // based on the current view; identical adjacent values mean the title
   // stays put with no fade (collage and stats both say Heard Recently).
-  var VIEW_TITLES = ['Heard Recently', 'Heard Recently', 'Avian Visitors'];
+  var VIEW_TITLES = ['Onlangs gehoord', 'Onlangs gehoord', 'Avian Visitors', 'Reisjournaal'];
   var staticHead = document.querySelector('.static-head');
   var staticTitle = document.getElementById('staticTitle');
   function setTitleForView(i) {
@@ -84,7 +84,7 @@
   var STATS_LEAD = SLIDE_MS - 200;    // stats - begin a touch sooner
   var currentView = 0;                // collage shows first (no go() needed)
   function go(i) {
-    i = Math.max(0, Math.min(2, i));
+    i = Math.max(0, Math.min(3, i));
     // Only a genuine view *switch* replays the entrance. go() also fires when
     // a card is expanded (it sets the #sci= hash, which routes through go(2))
     // while already on the atlas - that must not retrigger the load-in.
@@ -94,12 +94,17 @@
     btns.forEach(function (b, j) { b.setAttribute('aria-current', j === i ? 'true' : 'false'); });
     syncPill(slider);
     setTitleForView(i);
+    // The map view (3) has no time filter, so hide the picker + range popover there.
+    if (winPick) winPick.style.visibility = (i === 3) ? 'hidden' : '';
+    var wr = document.getElementById('winRange');
+    if (wr) wr.hidden = (i === 3) ? true : !customMode;
     if (!switching) return;
     // Replay the view's entrance animation on switch (collage bloom,
-    // stats left-to-right, atlas row-by-row).
+    // stats left-to-right, atlas row-by-row, map draw).
     if (i === 0) playCollageEntrance();
     else if (i === 1) playStatsEntrance(STATS_LEAD);
     else if (i === 2) playAtlasEntrance(SWITCH_LEAD);
+    else if (i === 3) showMapView();
   }
   btns.forEach(function (b) { b.addEventListener('click', function () { go(+b.dataset.i); }); });
 
@@ -146,18 +151,50 @@
   applyTheme(readLS('bird:theme', 'light'));
   var winBtns = [].slice.call(winPick.querySelectorAll('button'));
   var currentHours = +readLS('bird:window', '24') || 24;
+  // Custom date-range state (DATUM button). winSerial guards stale async
+  // responses when the window or range changes mid-fetch.
+  var customMode = false, customFrom = '', customTo = '', winSerial = 0;
+  var winRange = document.getElementById('winRange');
+  var winFromEl = document.getElementById('winFrom');
+  var winToEl = document.getElementById('winTo');
   winBtns.forEach(function (b) {
     b.setAttribute('aria-current', (+b.dataset.h === currentHours) ? 'true' : 'false');
   });
   winBtns.forEach(function (b) {
     b.addEventListener('click', function () {
       winBtns.forEach(function (x) { x.setAttribute('aria-current', x === b ? 'true' : 'false'); });
-      currentHours = +b.dataset.h;
-      writeLS('bird:window', String(currentHours));
+      winSerial++;
+      if (b.dataset.h === 'custom') {
+        customMode = true;
+        if (winRange) winRange.hidden = false;
+      } else {
+        customMode = false;
+        if (winRange) winRange.hidden = true;
+        currentHours = +b.dataset.h;
+        writeLS('bird:window', String(currentHours));
+      }
       syncPill(winPick);
       // Actual data refresh is wired below via refreshRecent().
     });
   });
+  // Re-fetch when a custom date changes.
+  [winFromEl, winToEl].forEach(function (el) {
+    if (el) el.addEventListener('change', function () {
+      customFrom = winFromEl.value; customTo = winToEl.value;
+      winSerial++;
+      refreshRecent(true);
+    });
+  });
+  // The recent-data query: preset hours, or a custom from/to range.
+  function recentQuery() {
+    if (customMode) {
+      var q = 'action=recent';
+      if (customFrom) q += '&from=' + encodeURIComponent(customFrom);
+      if (customTo) q += '&to=' + encodeURIComponent(customTo);
+      return q;
+    }
+    return 'action=recent&hours=' + currentHours;
+  }
 
   // Initial pill placement (after layout settles) + on resize.
   // Atlas sort segmented control - same pill-on-recess pattern.
@@ -288,6 +325,60 @@
   function dispName(sci, com) {
     return (sci && NAMES_NL[sci]) || com || sci || '';
   }
+
+  // ---- Missing-illustration handling ----
+  // A detected species with no usable cutout would otherwise render a
+  // broken-image icon. Instead swap in a faint kachō-e placeholder and,
+  // once per species, surface a Dutch notice (persisted + logged) so the
+  // owner knows to pre-generate a proper illustration later.
+  var PLACEHOLDER_IMG = 'data:image/svg+xml,' + encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'>" +
+    "<g fill='#908576' opacity='0.4'>" +
+    "<ellipse cx='50' cy='68' rx='30' ry='21'/><circle cx='78' cy='50' r='13'/>" +
+    "<path d='M89 47 L106 43 L91 55 Z'/><path d='M22 62 q-15 7 -1 18 q5 -9 17 -9 Z'/>" +
+    "</g><circle cx='82' cy='47' r='2.2' fill='#fcfcfb'/></svg>");
+  var _toastTimer = null;
+  function notify(msg) {
+    var el = document.getElementById('appToast');
+    if (!el) return;
+    el.textContent = msg;
+    el.setAttribute('data-show', 'true');
+    el.onclick = function () { el.removeAttribute('data-show'); };
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(function () { el.removeAttribute('data-show'); }, 7000);
+  }
+  var missingArt = {};
+  function reportMissing(sci, com) {
+    if (!sci || missingArt[sci]) return;
+    missingArt[sci] = dispName(sci, com) || sci;
+    try {
+      var L = JSON.parse(localStorage.getItem('bird:missingArt') || '[]');
+      if (L.indexOf(sci) < 0) { L.push(sci); localStorage.setItem('bird:missingArt', JSON.stringify(L)); }
+    } catch (e) {}
+    if (window.console) console.warn('[AvianVisitors] no illustration for', sci);
+    var names = Object.keys(missingArt).map(function (k) { return missingArt[k]; });
+    notify(names.length === 1
+      ? 'Nog geen illustratie voor ' + names[0] + '.'
+      : 'Nog geen illustratie voor ' + names.length + ' soorten: ' + names.join(', ') + '.');
+  }
+  function onBirdImgError(imgEl, sci, com) {
+    if (!imgEl || imgEl.dataset.fallback) return;   // already swapped - avoid a loop
+    imgEl.dataset.fallback = '1';
+    imgEl.src = PLACEHOLDER_IMG;
+    imgEl.classList.add('img-missing');
+    reportMissing(sci, com);
+  }
+  // Wire the fallback, catching an error that may have already fired
+  // (lazy images can fail before the handler is attached).
+  function wireImgFallback(imgEl, sci, com) {
+    if (!imgEl) return;
+    // Rely ONLY on the error event. A synchronous complete/naturalWidth check
+    // misfires: naturalWidth is 0 for a lazy or not-yet-loaded image (and for
+    // the modal's initial empty src), which falsely flagged illustrated
+    // species as "missing". A real 404 still fires onerror.
+    imgEl.onerror = function () { onBirdImgError(imgEl, sci, com); };
+  }
+
   function aspect(sci) {
     var d = DIMS[slugify(sci)];
     return d ? d[0] / d[1] : 1.4;
@@ -421,7 +512,7 @@
   function renderCollage(items, animate) {
     collage.innerHTML = '';
     if (!items.length) {
-      collage.innerHTML = '<p class="empty">no birds heard in this window.</p>';
+      collage.innerHTML = '<p class="empty">geen vogels gehoord in deze periode.</p>';
       return;
     }
     var W = collage.clientWidth, H = collage.clientHeight;
@@ -562,7 +653,7 @@
       // detections in a session; "heard" implies distinct individuals.
       var titleN = +s.n || 0;
       btn.title = dispName(s.sci, s.com) + ' · ' + fmtN(titleN) + ' ' +
-        (titleN === 1 ? 'call' : 'calls') + ' ' + windowLabel(currentHours);
+        (titleN === 1 ? 'waarneming' : 'waarnemingen') + ' ' + windowLabel(currentHours);
       btn.style.left   = r.x + 'px';
       btn.style.top    = r.y + 'px';
       btn.style.width  = r.fullW + 'px';
@@ -570,6 +661,7 @@
       btn.innerHTML = '<img loading="lazy" decoding="async" src="' + img + '" alt="' + dispName(s.sci, s.com) + '">';
       r.el = btn;
       collage.appendChild(btn);
+      wireImgFallback(btn.querySelector('img'), s.sci, s.com);
     });
     // Hover pill - created once per render so collage.innerHTML='' at
     // the top of this function doesn't strand a stale node. mousemove
@@ -735,7 +827,7 @@
       if (hit) {
         var s = hit.data;
         var n = +s.n || 0;
-        var noun = (n === 1) ? 'call' : 'calls';
+        var noun = (n === 1) ? 'waarneming' : 'waarnemingen';
         tip.innerHTML = '<span class="ct-name">' + dispName(s.sci, s.com) + '</span>'
           + '<span class="ct-w"> - </span>'
           + '<span class="ct-n">' + fmtN(n) + '</span>'
@@ -823,11 +915,24 @@
   // a bare "window" with the span it actually covers. Thresholds match
   // the winPick buttons (1H / 12H / 24H / 7D / ALL).
   function windowLabel(h) {
-    if (h <= 1) return 'this hour';
-    if (h <= 12) return 'past 12h';
-    if (h <= 24) return 'today';
-    if (h <= 168) return 'this week';
-    return 'all time';
+    if (customMode) return customRangeLabel();
+    if (h <= 1) return 'dit uur';
+    if (h <= 12) return 'afgelopen 12 u';
+    if (h <= 24) return 'vandaag';
+    if (h <= 168) return 'deze week';
+    return 'totaal';
+  }
+  function shortDate(s) {                 // 'YYYY-MM-DD' -> 'D mmm' (Dutch)
+    var m = (s || '').split('-');
+    if (m.length < 3) return s || '';
+    var mon = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'][+m[1] - 1] || '';
+    return (+m[2]) + ' ' + mon;
+  }
+  function customRangeLabel() {
+    if (customFrom && customTo) return shortDate(customFrom) + ' – ' + shortDate(customTo);
+    if (customFrom) return 'vanaf ' + shortDate(customFrom);
+    if (customTo) return 'tot ' + shortDate(customTo);
+    return 'aangepast';
   }
 
   // ---- Live Pi data layer ----
@@ -900,7 +1005,7 @@
     if (!tl) return;
     var all = ((DATA.recent && DATA.recent.species) || []).slice();
     if (!all.length) {
-      tl.innerHTML = '<div class="stats-tl-empty">no detections in this window</div>';
+      tl.innerHTML = '<div class="stats-tl-empty">geen waarnemingen in deze periode</div>';
       return;
     }
 
@@ -986,7 +1091,7 @@
     });
 
     var note = trimmed
-      ? '<div class="stats-tl-cap">' + C + ' most-heard of ' + all.length + '</div>'
+      ? '<div class="stats-tl-cap">' + C + ' meest gehoord van ' + all.length + '</div>'
       : '';
     tl.innerHTML =
       '<div class="stats-tl-yaxis">' + yaxis + '</div>'
@@ -1038,10 +1143,10 @@
     var week_det = (stats.week && stats.week.detections) || 0;
     var all_det = (stats.totals && stats.totals.detections) || 0;
     document.getElementById('statsByPeriod').innerHTML =
-        liRow('NOW',   'last hour',   fmtN(last_hour))
-      + liRow('TODAY', 'today',       fmtN(today_det))
-      + liRow('WEEK',  'last 7 days', fmtN(week_det))
-      + liRow('ALL',   'all time',    fmtN(all_det));
+        liRow('NU',      'afgelopen uur',     fmtN(last_hour))
+      + liRow('VANDAAG', 'vandaag',           fmtN(today_det))
+      + liRow('WEEK',    'afgelopen 7 dagen', fmtN(week_det))
+      + liRow('ALLES',   'totaal',            fmtN(all_det));
 
     // Top Species - top 5 species in the current window. ./avian/api/birdnet-api.php?action=recent
     // already returns species sorted by last_seen DESC; re-sort by count.
@@ -1051,9 +1156,9 @@
       .slice(0, 5);
     document.getElementById('statsTopSpec').innerHTML = ranked.length
       ? ranked.map(function (s, i) { return liRow(pad(i + 1), dispName(s.sci, s.com), fmtN(+s.n), s.sci); }).join('')
-      : liRow('-', 'no detections in window', '');
+      : liRow('-', 'geen waarnemingen in periode', '');
     document.getElementById('statsTopSpecCap').textContent =
-      'most-heard, ' + windowLabel(currentHours);
+      'meest gehoord, ' + windowLabel(currentHours);
 
     // First Detections - newest additions to the life list, with a
     // "Xd ago" label computed from first_seen.
@@ -1065,11 +1170,11 @@
           var label = '-';
           if (!isNaN(t)) {
             var daysAgo = Math.floor((now - t) / 86400000);
-            label = daysAgo === 0 ? 'today' : daysAgo + 'd ago';
+            label = daysAgo === 0 ? 'vandaag' : daysAgo + 'd geleden';
           }
           return liRow(label, dispName(s.sci, s.com), '', s.sci);
         }).join('')
-      : liRow('-', 'no detections yet', '');
+      : liRow('-', 'nog geen waarnemingen', '');
   }
 
   // ---- Atlas: field-guide card grid ----
@@ -1116,22 +1221,22 @@
 
     if (!lifelist.length) {
       grid.innerHTML = '<div class="atlas-empty">' +
-        '<p>No birds detected yet.</p>' +
-        '<p class="hint">The atlas fills up as BirdNET-Pi identifies new species.</p>' +
+        '<p>Nog geen vogels waargenomen.</p>' +
+        '<p class="hint">De atlas vult zich naarmate er nieuwe soorten worden herkend.</p>' +
         '</div>';
       return;
     }
 
     // Time-window filter: when a windowed view is selected, only show
     // species heard in that window. ALL preserves the full lifelist.
-    var isAllWindow = currentHours >= 1000000;
+    var isAllWindow = !customMode && currentHours >= 1000000;
     var filtered = isAllWindow
       ? lifelist
       : lifelist.filter(function (s) { return (winBySci[s.sci] || 0) > 0; });
     if (!filtered.length) {
       grid.innerHTML = '<div class="atlas-empty">' +
-        '<p>No detections in this window.</p>' +
-        '<p class="hint">Try a longer time window.</p>' +
+        '<p>Geen waarnemingen in deze periode.</p>' +
+        '<p class="hint">Probeer een langere periode.</p>' +
         '</div>';
       return;
     }
@@ -1157,7 +1262,9 @@
     // to the life list this 1h / 12h / 24h / 7d. Never shown for the ALL
     // window (every species would qualify against an open-ended span).
     var now = Date.now();
-    var windowStartMs = now - currentHours * 3600000;
+    var windowStartMs = customMode
+      ? (customFrom ? Date.parse(customFrom + 'T00:00:00') : 0)
+      : now - currentHours * 3600000;
     grid.innerHTML = species.map(function (s) {
       var total = +s.n || 0;
       var win = winBySci[s.sci] || 0;
@@ -1170,13 +1277,13 @@
       // The "all time" window makes the windowed count identical to the
       // all-time count - collapse to a single stat rather than print the
       // same number twice. Otherwise label the count with its span.
-      var statRows = currentHours >= 1000000
-        ? '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>'
+      var statRows = (!customMode && currentHours >= 1000000)
+        ? '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">totaal</span></div>'
         : '<div><span class="n">' + fmtNK(win) + '</span><span class="lbl-inline">' + windowLabel(currentHours) + '</span></div>'
-          + '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>';
+          + '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">totaal</span></div>';
       return ''
         + '<article class="bird-card" data-sci="' + s.sci + '" data-audio="' + audioSrc + '">'
-        +   (isLifer ? '<span class="lifer-badge" title="new to the life list in this window">lifer</span>' : '')
+        +   (isLifer ? '<span class="lifer-badge" title="nieuw op de soortenlijst in deze periode">nieuw</span>' : '')
         +   '<div class="stat">' + statRows + '</div>'
         +   '<div class="img-wrap">'
         +     '<img loading="lazy" decoding="async" src="' + sketchSrc + '" alt="' + dispName(s.sci, s.com) + '">'
@@ -1185,14 +1292,20 @@
         +   '<div class="sci">' + s.sci + '</div>'
         +   '<div class="spectro-wrap" aria-hidden="true"></div>'
         +   '<div class="actions">'
-        +     '<button type="button" class="chip play" data-action="play" aria-label="play recording">'
-        +       ICON_PLAY + '<span>play</span>'
+        +     '<button type="button" class="chip play" data-action="play" aria-label="opname afspelen">'
+        +       ICON_PLAY + '<span>afspelen</span>'
         +     '</button>'
         +     '<a class="chip ext" href="' + wikiUrl(s.sci) + '" target="_blank" rel="noopener" aria-label="Wikipedia">wiki</a>'
         +     '<a class="chip ext" href="' + ebirdUrl(s.sci) + '" target="_blank" rel="noopener" aria-label="eBird">ebird</a>'
         +   '</div>'
         + '</article>';
     }).join('');
+
+    // Swap any failed bird image for the kachō-e placeholder + report it.
+    grid.querySelectorAll('.bird-card img').forEach(function (im) {
+      var card = im.closest('.bird-card');
+      wireImgFallback(im, card && card.getAttribute('data-sci'));
+    });
 
     // Wire audio playback + spectrogram load.
     // - Only one card plays at a time. Clicking play on a different card
@@ -1213,16 +1326,16 @@
         btn.innerHTML = ICON_PLAY + '<span>...</span>';
       } else if (state === 'missing') {
         btn.setAttribute('data-active', 'false');
-        btn.innerHTML = ICON_PLAY + '<span>no audio</span>';
+        btn.innerHTML = ICON_PLAY + '<span>geen audio</span>';
         setTimeout(function () {
           if (btn.getAttribute('data-state') === 'missing') {
-            btn.innerHTML = ICON_PLAY + '<span>play</span>';
+            btn.innerHTML = ICON_PLAY + '<span>afspelen</span>';
             btn.setAttribute('data-state', 'idle');
           }
         }, 2200);
       } else {
         btn.setAttribute('data-active', 'false');
-        btn.innerHTML = ICON_PLAY + '<span>play</span>';
+        btn.innerHTML = ICON_PLAY + '<span>afspelen</span>';
       }
     }
     function clearProgressOn(card) {
@@ -1350,34 +1463,33 @@
   }
 
   function refreshRecent(animate) {
-    // Capture the window this fetch was issued for. If the user
-    // changes the picker again before it resolves - or a slower poll
-    // lands later - we discard the stale response so the collage
-    // never reverts to a different window.
-    var forHours = currentHours;
-    return fetchJson('./avian/api/birdnet-api.php?action=recent&hours=' + forHours)
+    // Capture the window/range this fetch was issued for via winSerial. If the
+    // user changes the picker again before it resolves - or a slower poll lands
+    // later - we discard the stale response so the views never revert.
+    var serial = winSerial;
+    return fetchJson('./avian/api/birdnet-api.php?' + recentQuery())
       .then(function (j) {
-        if (forHours !== currentHours) return; // window changed mid-flight
+        if (serial !== winSerial) return; // window/range changed mid-flight
         DATA.recent = j; renderWindowDependent(animate);
       })
       .catch(function (e) { console.warn('recent fetch failed', e); });
   }
   function refreshAll(animate) {
-    var forHours = currentHours;
+    var serial = winSerial;
     return Promise.all([
       fetchJson('./avian/api/birdnet-api.php?action=stats').catch(function () { return null; }),
       fetchJson('./avian/api/birdnet-api.php?action=lifelist').catch(function () { return null; }),
       fetchJson('./avian/api/birdnet-api.php?action=timeseries&days=30').catch(function () { return null; }),
       fetchJson('./avian/api/birdnet-api.php?action=firstseen&limit=10').catch(function () { return null; }),
-      fetchJson('./avian/api/birdnet-api.php?action=recent&hours=' + forHours).catch(function () { return null; }),
+      fetchJson('./avian/api/birdnet-api.php?' + recentQuery()).catch(function () { return null; }),
     ]).then(function (parts) {
       DATA.stats = parts[0];
       DATA.lifelist = parts[1];
       DATA.timeseries = parts[2];
       DATA.firstseen = parts[3];
-      // Only accept the recent slice if the window hasn't changed
+      // Only accept the recent slice if the window/range hasn't changed
       // since this poll started - otherwise keep what's there.
-      if (forHours === currentHours && parts[4]) DATA.recent = parts[4];
+      if (serial === winSerial && parts[4]) DATA.recent = parts[4];
       recomputeDerived();
       renderTimeIndependent(animate);
       renderCollageFromData(animate);
@@ -1470,14 +1582,14 @@
       if (r.status === 200) {
         return r.json().then(function (j) { renderMenu(j.items || []); });
       } else if (r.status === 401) {
-        lockHint.textContent = 'wrong password.';
+        lockHint.textContent = 'onjuist wachtwoord.';
         lockHint.classList.add('lock-err');
       } else {
-        lockHint.textContent = 'auth unavailable.';
+        lockHint.textContent = 'authenticatie niet beschikbaar.';
         lockHint.classList.add('lock-err');
       }
     }).catch(function () {
-      lockHint.textContent = 'network error.';
+      lockHint.textContent = 'netwerkfout.';
       lockHint.classList.add('lock-err');
     });
   });
@@ -1506,9 +1618,9 @@
     items.innerHTML =
       '<div class="live-audio" id="liveAudio" data-on="false">'
       + '  <div class="pulse"></div>'
-      + '  <div class="label">Live audio<span class="hint">stream from the mic</span></div>'
+      + '  <div class="label">Live geluid<span class="hint">stream van de microfoon</span></div>'
       + '  <button type="button" id="liveAudioBtn">'
-      +     liveAudioIcon + '<span>listen</span>'
+      +     liveAudioIcon + '<span>luisteren</span>'
       + '  </button>'
       + '</div>'
       // Spectrogram canvas is always present; it stays a dark inert
@@ -1579,7 +1691,7 @@
       if (srcNode) { try { srcNode.disconnect(); } catch (e) {} srcNode = null; }
       if (analyser) { try { analyser.disconnect(); } catch (e) {} analyser = null; }
       liveBox.setAttribute('data-on', 'false');
-      liveBtn.innerHTML = liveAudioIcon + '<span>listen</span>';
+      liveBtn.innerHTML = liveAudioIcon + '<span>luisteren</span>';
       // Clear the spectrogram canvas so it returns to its quiet state.
       var ctx = spectroEl.getContext('2d');
       ctx.fillStyle = getComputedStyle(document.documentElement)
@@ -1676,14 +1788,14 @@
       if (on) { setStatus(''); stopAudio(); return; }
       liveBox.setAttribute('data-on', 'true');
       liveBtn.innerHTML = stopIcon + '<span>stop</span>';
-      setStatus('connecting...');
+      setStatus('verbinden...');
       startAudio()
-        .then(function () { setStatus('streaming from pi'); attachSpectrogram(); })
+        .then(function () { setStatus('streamt van de pi'); attachSpectrogram(); })
         .catch(function (err) {
           stopAudio();
           var msg = (err && err.message) || 'stream unavailable';
           if (msg.indexOf('NotAllowed') !== -1 || msg.indexOf('user') !== -1) {
-            setStatus('browser blocked autoplay - tap listen again', true);
+            setStatus('browser blokkeerde autoplay — tik nogmaals op luisteren', true);
           } else {
             setStatus(msg, true);
           }
@@ -1708,17 +1820,17 @@
         var v = cfg.values || {};
         var preserve = cfg.preserve;
         var html = ''
-          + settingsToggle('preserve', 'Preserve all recordings', "don't auto-delete", preserve)
-          + settingsSlider('CONFIDENCE',  'Confidence threshold', 'min score to log a detection', v.CONFIDENCE,  0.1, 0.95, 0.05, 2)
-          + settingsSlider('SENSITIVITY', 'Sensitivity',          'analyzer sensitivity',          v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
-          + settingsSlider('OVERLAP',     'Chunk overlap',        'seconds analyzed per pass',     v.OVERLAP,     0,   2.5,  0.1,  1)
-          + settingsSegmented('FULL_DISK', 'When disk fills', '', v.FULL_DISK, [
-              { v: 'keep',  label: 'keep' },
-              { v: 'purge', label: 'purge' },
+          + settingsToggle('preserve', 'Alle opnames bewaren', 'niet automatisch verwijderen', preserve)
+          + settingsSlider('CONFIDENCE',  'Betrouwbaarheidsdrempel', 'min. score om een waarneming te loggen', v.CONFIDENCE,  0.1, 0.95, 0.05, 2)
+          + settingsSlider('SENSITIVITY', 'Gevoeligheid',            'gevoeligheid van de analyser',           v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
+          + settingsSlider('OVERLAP',     'Overlap',                 'seconden geanalyseerd per ronde',        v.OVERLAP,     0,   2.5,  0.1,  1)
+          + settingsSegmented('FULL_DISK', 'Bij volle schijf', '', v.FULL_DISK, [
+              { v: 'keep',  label: 'behouden' },
+              { v: 'purge', label: 'wissen' },
             ])
           + '<div class="menu-save-row">'
           + '  <span class="save-state" id="saveState"></span>'
-          + '  <button type="button" id="saveBtn" disabled>save</button>'
+          + '  <button type="button" id="saveBtn" disabled>opslaan</button>'
           + '</div>';
         var body = document.getElementById('settingsBody');
         if (body) body.innerHTML = html;
@@ -1729,7 +1841,7 @@
       .catch(function (err) {
         var body = document.getElementById('settingsBody');
         if (body) body.innerHTML =
-          '<div class="menu-row"><span class="label">Failed to load <small class="hint">' + err + '</small></span></div>';
+          '<div class="menu-row"><span class="label">Laden mislukt <small class="hint">' + err + '</small></span></div>';
       });
   }
 
@@ -1779,8 +1891,8 @@
     };
     return ''
       + '<div class="menu-row">'
-      + '  <div><span class="label">Theme</span><span class="hint">saved on this device</span></div>'
-      + '  <div class="seg" data-theme-seg>' + btn('light', 'light') + btn('dark', 'dark') + '</div>'
+      + '  <div><span class="label">Thema</span><span class="hint">op dit apparaat opgeslagen</span></div>'
+      + '  <div class="seg" data-theme-seg>' + btn('light', 'licht') + btn('dark', 'donker') + '</div>'
       + '</div>';
   }
   function wireSettingsControls(scope) {
@@ -1790,7 +1902,7 @@
         var on = sw.getAttribute('aria-checked') !== 'true';
         sw.setAttribute('aria-checked', on ? 'true' : 'false');
         pending[sw.dataset.key] = on;
-        setSaveState('change pending');
+        setSaveState('wijziging in behandeling');
       });
     });
     scope.querySelectorAll('input[type="range"]').forEach(function (sl) {
@@ -1800,7 +1912,7 @@
         var label = scope.querySelector('[data-value-for="' + sl.dataset.key + '"]');
         if (label) label.textContent = v.toFixed(digits);
         pending[sl.dataset.key] = v;
-        setSaveState('change pending');
+        setSaveState('wijziging in behandeling');
       });
     });
     scope.querySelectorAll('.seg:not([data-theme-seg])').forEach(function (seg) {
@@ -1808,7 +1920,7 @@
         b.addEventListener('click', function () {
           seg.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-current', x === b ? 'true' : 'false'); });
           pending[seg.dataset.key] = b.dataset.v;
-          setSaveState('change pending');
+          setSaveState('wijziging in behandeling');
         });
       });
     });
@@ -1817,7 +1929,7 @@
   function saveSettings() {
     if (Object.keys(pending).length === 0) return;
     var body = JSON.stringify(pending);
-    setSaveState('saving...');
+    setSaveState('opslaan...');
     fetch('./avian/api/config.php', {
       method: 'POST', body: body,
       credentials: 'same-origin',
@@ -1827,13 +1939,13 @@
       .then(function (res) {
         if (res.ok && res.j.ok) {
           pending = {};
-          setSaveState('saved ✓', 'ok');
+          setSaveState('opgeslagen ✓', 'ok');
           setTimeout(function () { setSaveState(''); }, 1800);
         } else {
-          setSaveState('save failed', 'err');
+          setSaveState('opslaan mislukt', 'err');
         }
       })
-      .catch(function () { setSaveState('network error', 'err'); });
+      .catch(function () { setSaveState('netwerkfout', 'err'); });
   }
 
   // ---- Hash routing + atlas detail modal ----
@@ -1882,10 +1994,10 @@
     if (isNaN(date.getTime())) return d + ' ' + (t || '');
     var now = Date.now();
     var ago = Math.floor((now - date.getTime()) / 1000);
-    if (ago < 60) return ago + 's ago';
-    if (ago < 3600) return Math.floor(ago / 60) + 'm ago';
-    if (ago < 86400) return Math.floor(ago / 3600) + 'h ago';
-    return Math.floor(ago / 86400) + 'd ago';
+    if (ago < 60) return ago + 's geleden';
+    if (ago < 3600) return Math.floor(ago / 60) + 'm geleden';
+    if (ago < 86400) return Math.floor(ago / 3600) + 'u geleden';
+    return Math.floor(ago / 86400) + 'd geleden';
   }
   function fmtDateLine(d, t) {
     if (!d) return '';
@@ -1903,10 +2015,10 @@
       if (!isNaN(t)) days = Math.max(1, Math.ceil((Date.now() - t) / 86400000));
     }
     var perDay = total / days;
-    if (perDay >= 5) return 'common';
-    if (perDay >= 1) return 'regular';
-    if (perDay >= 0.2) return 'occasional';
-    return 'rare';
+    if (perDay >= 5) return 'algemeen';
+    if (perDay >= 1) return 'regelmatig';
+    if (perDay >= 0.2) return 'incidenteel';
+    return 'zeldzaam';
   }
   // rAF-driven cursor smoothing. timeupdate fires ~4Hz which feels
   // janky; we sample audio.currentTime every animation frame and
@@ -1985,6 +2097,9 @@
     if (!sci) return;
     var modal = document.getElementById('detail-modal');
     var img = document.getElementById('modalImg');
+    img.removeAttribute('data-fallback');   // reused element - clear last species' fallback
+    img.classList.remove('img-missing');
+    wireImgFallback(img, sci);
     var poseToggle = document.getElementById('modalPoseToggle');
     var poseBtns = [].slice.call(poseToggle.querySelectorAll('button'));
 
@@ -2044,7 +2159,7 @@
     // Window stat label tracks the picker; the whole stat is hidden for
     // the "all time" window since it would just echo the all-time count.
     var modalWinStat = document.getElementById('modalWindowStat');
-    if (currentHours >= 1000000) {
+    if (!customMode && currentHours >= 1000000) {
       modalWinStat.style.display = 'none';
     } else {
       modalWinStat.style.display = '';
@@ -2053,9 +2168,9 @@
     document.getElementById('modalFirstSeen').textContent = '-';
     document.getElementById('modalRarity').textContent = '-';
     document.getElementById('modalRarity').classList.remove('rare');
-    document.getElementById('modalDesc').textContent = 'Loading description...';
+    document.getElementById('modalDesc').textContent = 'Beschrijving laden...';
     document.getElementById('modalDesc').classList.add('placeholder');
-    document.getElementById('modalRecordings').innerHTML = '<li class="rec-empty">Loading recordings...</li>';
+    document.getElementById('modalRecordings').innerHTML = '<li class="rec-empty">Opnames laden...</li>';
     document.getElementById('modalRecCount').textContent = '';
     document.getElementById('modalWiki').href = wikiUrl(sci);
     document.getElementById('modalEbird').href = ebirdUrl(sci);
@@ -2090,26 +2205,26 @@
       var rar = rarityLabel(+s.total || 0, s.first_seen);
       var rarEl = document.getElementById('modalRarity');
       rarEl.textContent = rar;
-      if (rar === 'rare') rarEl.classList.add('rare');
+      if (rar === 'zeldzaam') rarEl.classList.add('rare');
       var dets = j.detections || [];
-      document.getElementById('modalRecCount').textContent = dets.length + ' captured';
+      document.getElementById('modalRecCount').textContent = dets.length + ' opgenomen';
       document.getElementById('modalRecordings').innerHTML = dets.length
         ? dets.map(function (d) {
             return '<li class="rec-row" data-file="' + (d.file || '') + '" data-date="' + (d.d || '') + '">'
-              + '<button class="play" type="button" aria-label="play">' + ICON_PLAY + '</button>'
+              + '<button class="play" type="button" aria-label="afspelen">' + ICON_PLAY + '</button>'
               + '<span class="when">' + fmtRecTime(d.d, d.t) + '<small>' + fmtDateLine(d.d, d.t) + '</small></span>'
               + '<span class="conf">' + ((+d.conf || 0) * 100).toFixed(0) + '%</span>'
               + '<div class="rec-spectro" aria-hidden="true">'
-              +   '<div class="rec-spectro-loading">loading spectrogram...</div>'
+              +   '<div class="rec-spectro-loading">spectrogram laden...</div>'
               +   '<div class="rec-spectro-played"></div>'
               +   '<div class="rec-spectro-cursor"></div>'
-              +   '<div class="rec-spectro-scrub" role="slider" aria-label="scrub" tabindex="0"></div>'
+              +   '<div class="rec-spectro-scrub" role="slider" aria-label="spoelen" tabindex="0"></div>'
               + '</div>'
               + '</li>';
           }).join('')
-        : '<li class="rec-empty">No recordings yet.</li>';
+        : '<li class="rec-empty">Nog geen opnames.</li>';
     }).catch(function () {
-      document.getElementById('modalRecordings').innerHTML = '<li class="rec-empty">Failed to load recordings.</li>';
+      document.getElementById('modalRecordings').innerHTML = '<li class="rec-empty">Opnames laden mislukt.</li>';
     });
 
     // Wikipedia summary (description + genus / family).
@@ -2120,11 +2235,11 @@
         });
     loadWiki.then(function (j) {
       var desc = document.getElementById('modalDesc');
-      desc.textContent = j.extract || 'No description available.';
+      desc.textContent = j.extract || 'Geen beschrijving beschikbaar.';
       desc.classList.toggle('placeholder', !j.extract);
     }).catch(function () {
       var desc = document.getElementById('modalDesc');
-      desc.textContent = 'No description available.';
+      desc.textContent = 'Geen beschrijving beschikbaar.';
       desc.classList.add('placeholder');
     });
   }
@@ -2275,6 +2390,186 @@
   window.__openDetailModal = openDetailModal;
   window.__closeDetailModal = closeDetailModal;
 
+  // ---- Reisjournaal: route map view (#v3) - alidade basemap, one pin per stop ----
+  var mapEl = document.getElementById('tripMap');
+  var mapEmptyEl = document.getElementById('mapEmpty');
+  var mapHintEl = document.getElementById('mapHint');
+  var locPanel = document.getElementById('locPanel');
+  var locTitleEl = document.getElementById('locTitle');
+  var locSubEl = document.getElementById('locSub');
+  var locListEl = document.getElementById('locList');
+  var stopsBtn = document.getElementById('stopsBtn');
+  var stopsPanel = document.getElementById('stopsPanel');
+  var stopsListEl = document.getElementById('stopsList');
+  var stopsSubEl = document.getElementById('stopsSub');
+  var lmap = null, mapLayer = null, mapInited = false, stadiaKey = null;
+  var pendingMove = null;                          // a stop awaiting a click-to-relocate
+
+  function pinIcon(n) {
+    return L.divIcon({ className: 'loc-pin-wrap', iconSize: [28, 28], iconAnchor: [14, 28],
+      html: '<div class="loc-pin"><span>' + (n > 99 ? '99+' : n) + '</span></div>' });
+  }
+  function mapDay(s) { return (s || '').split(' ')[0]; }
+  function openLocPanel(loc) {
+    if (!locPanel) return;
+    var nSp = loc.species.length;
+    locTitleEl.textContent = nSp + ' soort' + (nSp === 1 ? '' : 'en') + ' hier';
+    var d1 = mapDay(loc.first_seen), d2 = mapDay(loc.last_seen);
+    locSubEl.textContent = (d1 === d2 ? d1 : d1 + ' – ' + d2) + ' · ' + loc.n + ' waarnemingen';
+    locListEl.innerHTML = loc.species.slice().sort(function (a, b) { return b.n - a.n; }).map(function (s) {
+      var img = './avian/api/cutout.php?sci=' + encodeURIComponent(s.sci) + '&v=' + SKETCH_VERSION;
+      return '<li data-sci="' + s.sci.replace(/"/g, '&quot;') + '">'
+        + '<img src="' + img + '" alt="" onerror="this.remove()">'
+        + '<span class="nm">' + dispName(s.sci, s.com) + '<small>' + s.sci + '</small></span>'
+        + '<span class="ct">' + s.n + '×</span></li>';
+    }).join('');
+    locPanel.setAttribute('aria-hidden', 'false');
+  }
+  function closeLocPanel() { if (locPanel) locPanel.setAttribute('aria-hidden', 'true'); }
+  function renderMap() {
+    if (!lmap || !mapLayer) return;
+    fetchJson('./avian/api/birdnet-api.php?action=locations').then(function (j) {
+      var locs = (j.locations || []).filter(function (l) { return l.lat && l.lon; });
+      mapLayer.clearLayers();
+      if (mapEmptyEl) mapEmptyEl.hidden = locs.length > 0;
+      if (!locs.length) return;
+      var pts = [];
+      locs.forEach(function (loc) {
+        var ll = [+loc.lat, +loc.lon]; pts.push(ll);
+        var m = L.marker(ll, { icon: pinIcon(loc.species.length), draggable: true }).addTo(mapLayer);
+        m.on('click', function () { openLocPanel(loc); });
+        m.on('dragend', function (e) { editStop(loc, 'move', e.target.getLatLng()); });  // drag-to-fix
+      });
+      if (pts.length > 1) {
+        L.polyline(pts, { color: '#4a3f31', weight: 2, opacity: 0.5, dashArray: '4 6' }).addTo(mapLayer);
+      }
+      if (pts.length === 1) lmap.setView(pts[0], 9);
+      else lmap.fitBounds(L.latLngBounds(pts).pad(0.25));
+    }).catch(function () { if (mapEmptyEl) mapEmptyEl.hidden = false; });
+  }
+  // Persist a stop's new coords (move) or remove it (delete) via the write API.
+  // Moves push their inverse onto moveUndo so Ctrl+Z can reverse them.
+  var moveUndo = [];
+  function editStop(loc, op, np) {
+    var body = { op: op, old_lat: loc.lat, old_lon: loc.lon };
+    if (op === 'move') { body.new_lat = np.lat; body.new_lon = np.lng; }
+    return fetch('./avian/api/location-edit.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    }).then(function () {
+      if (op === 'move') {                          // inverse: move it from np back to loc
+        moveUndo.push({ old_lat: np.lat, old_lon: np.lng, new_lat: loc.lat, new_lon: loc.lon });
+      }
+      closeLocPanel(); renderMap();
+    }).catch(function () { renderMap(); });
+  }
+  function undoMove() {
+    if (!moveUndo.length) { setHint('Niets om ongedaan te maken.'); setTimeout(function () { setHint(''); }, 1200); return; }
+    var u = moveUndo.pop();
+    fetch('./avian/api/location-edit.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ op: 'move', old_lat: u.old_lat, old_lon: u.old_lon, new_lat: u.new_lat, new_lon: u.new_lon })
+    }).then(function () { renderMap(); setHint('Verplaatsing ongedaan gemaakt.'); setTimeout(function () { setHint(''); }, 1500); })
+      .catch(function () { renderMap(); });
+  }
+  function setHint(msg) {
+    if (!mapHintEl) return;
+    if (msg) { mapHintEl.textContent = msg; mapHintEl.hidden = false; }
+    else { mapHintEl.hidden = true; }
+  }
+  function buildMap() {
+    var base = 'https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png';
+    // Zoom control bottom-right so it doesn't sit under the "locaties" button.
+    lmap = L.map(mapEl, { zoomControl: false });
+    L.control.zoom({ position: 'bottomright' }).addTo(lmap);
+    L.tileLayer(stadiaKey ? base + '?api_key=' + stadiaKey : base,   // keyless works on localhost
+      { maxZoom: 20, minZoom: 2, detectRetina: true,
+        attribution: '&copy; Stadia Maps &copy; OpenMapTiles &copy; OpenStreetMap' }).addTo(lmap);
+    mapLayer = L.layerGroup().addTo(lmap);
+    lmap.setView([46, 2], 5);
+    lmap.on('click', function (e) {
+      if (pendingMove) {                            // move-mode: relocate the chosen stop here
+        var loc = pendingMove; pendingMove = null; setHint('');
+        editStop(loc, 'move', e.latlng);
+        return;
+      }
+      closeLocPanel();
+    });
+    mapInited = true;
+  }
+  function showMapView() {                         // called by go(3)
+    if (!mapEl) return;
+    pendingMove = null; setHint('');               // clean slate on (re)entry
+    if (typeof L === 'undefined') {                // Leaflet (CDN) didn't load - offline
+      mapEl.innerHTML = '<div class="map-offline">Kaart niet beschikbaar (geen internet).</div>';
+      return;
+    }
+    var draw = function () { setTimeout(function () { lmap.invalidateSize(); renderMap(); }, SLIDE_MS); };
+    if (mapInited) { draw(); return; }
+    fetchJson('./avian/api/birdnet-api.php?action=mapconfig')
+      .then(function (c) { stadiaKey = (c && c.stadia_key) || null; })
+      .catch(function () {})
+      .then(function () { buildMap(); draw(); });
+  }
+  if (locPanel) {
+    document.getElementById('locClose').addEventListener('click', closeLocPanel);
+    locListEl.addEventListener('click', function (e) {
+      var li = e.target.closest && e.target.closest('li[data-sci]');
+      if (li && window.__openDetailModal) { closeLocPanel(); window.__openDetailModal(li.getAttribute('data-sci')); }
+    });
+  }
+
+  // ---- All-stops menu: list every stop, move or delete it ----
+  var stopsData = [];
+  function closeStopsPanel() { if (stopsPanel) stopsPanel.setAttribute('aria-hidden', 'true'); }
+  function openStopsPanel() {
+    if (!stopsPanel) return;
+    closeLocPanel();
+    fetchJson('./avian/api/birdnet-api.php?action=locations').then(function (j) {
+      stopsData = (j.locations || []).filter(function (l) { return l.lat && l.lon; });
+      stopsSubEl.textContent = stopsData.length + ' stop' + (stopsData.length === 1 ? '' : 's');
+      stopsListEl.innerHTML = stopsData.map(function (loc, i) {
+        var d1 = mapDay(loc.first_seen), d2 = mapDay(loc.last_seen);
+        var when = (d1 === d2 ? d1 : d1 + ' – ' + d2);
+        return '<li data-i="' + i + '">'
+          + '<div class="st-main"><b>' + when + '</b><span>' + loc.species.length + ' soorten</span></div>'
+          + '<div class="st-sub">' + (+loc.lat).toFixed(3) + ', ' + (+loc.lon).toFixed(3) + ' · ' + loc.n + ' waarnemingen</div>'
+          + '<div class="st-actions"><button data-act="move">verplaats</button>'
+          + '<button data-act="del" class="danger">verwijder</button></div></li>';
+      }).join('') || '<li class="st-sub">Nog geen locaties.</li>';
+      stopsPanel.setAttribute('aria-hidden', 'false');
+    }).catch(function () {});
+  }
+  if (stopsPanel) {
+    stopsBtn.addEventListener('click', function () {
+      if (stopsPanel.getAttribute('aria-hidden') === 'false') closeStopsPanel(); else openStopsPanel();
+    });
+    document.getElementById('stopsClose').addEventListener('click', closeStopsPanel);
+    stopsListEl.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('button[data-act]');
+      if (!btn) return;
+      var li = btn.closest('li'); var loc = stopsData[+li.getAttribute('data-i')];
+      if (!loc) return;
+      if (btn.dataset.act === 'move') {
+        pendingMove = loc;
+        closeStopsPanel();
+        setHint('Klik op de kaart om deze locatie te verplaatsen (of sleep de pin).');
+      } else if (btn.dataset.act === 'del') {
+        if (confirm('Deze locatie en al zijn waarnemingen verwijderen?')) {
+          editStop(loc, 'delete').then(openStopsPanel);
+        }
+      }
+    });
+  }
+  // Ctrl/Cmd+Z undoes the last pin move while on the map view.
+  document.addEventListener('keydown', function (e) {
+    if (!(e.ctrlKey || e.metaKey) || (e.key !== 'z' && e.key !== 'Z') || e.shiftKey) return;
+    if (currentView !== 3) return;
+    var t = e.target;
+    if (t && /^(input|textarea|select)$/i.test(t.tagName)) return;  // don't hijack text fields
+    e.preventDefault();
+    undoMove();
+  });
+
   // ===== Admin overlay (settings / system / logs / tools) =====
   // Lives in the same shell as the rest of the app - the menu button
   // and return-to-atlas pill stay put. The slider hides; this overlay
@@ -2286,10 +2581,10 @@
   var adminPollT = null;
   var adminSect = null;
   var ADMIN_TITLES = {
-    settings: 'Settings',
-    system: 'System',
-    logs: 'Logs',
-    tools: 'Tools',
+    settings: 'Instellingen',
+    system: 'Systeem',
+    logs: 'Logboek',
+    tools: 'Hulpmiddelen',
   };
   function adminEsc(s) {
     return String(s == null ? '' : s)
@@ -2341,7 +2636,7 @@
       + '</div>';
   }
   function adminUnreachableHtml(reason) {
-    return '<div class="admin-unreachable">Pi unreachable - ' + adminEsc(reason || 'no data') + '</div>';
+    return '<div class="admin-unreachable">Pi onbereikbaar — ' + adminEsc(reason || 'geen data') + '</div>';
   }
 
   function renderAdminSettings() {
@@ -2354,17 +2649,17 @@
         adminBody.innerHTML =
           '<div class="admin-settings">'
           + themeRow()
-          + settingsToggle('preserve', 'Preserve all recordings', "don't auto-delete", preserve)
-          + settingsSlider('CONFIDENCE',  'Confidence threshold', 'min score to log a detection', v.CONFIDENCE,  0.1, 0.95, 0.05, 2)
-          + settingsSlider('SENSITIVITY', 'Sensitivity',          'analyzer sensitivity',          v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
-          + settingsSlider('OVERLAP',     'Chunk overlap',        'seconds analyzed per pass',     v.OVERLAP,     0,   2.5,  0.1,  1)
-          + settingsSegmented('FULL_DISK', 'When disk fills', '', v.FULL_DISK, [
-              { v: 'keep',  label: 'keep' },
-              { v: 'purge', label: 'purge' },
+          + settingsToggle('preserve', 'Alle opnames bewaren', 'niet automatisch verwijderen', preserve)
+          + settingsSlider('CONFIDENCE',  'Betrouwbaarheidsdrempel', 'min. score om een waarneming te loggen', v.CONFIDENCE,  0.1, 0.95, 0.05, 2)
+          + settingsSlider('SENSITIVITY', 'Gevoeligheid',            'gevoeligheid van de analyser',           v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
+          + settingsSlider('OVERLAP',     'Overlap',                 'seconden geanalyseerd per ronde',        v.OVERLAP,     0,   2.5,  0.1,  1)
+          + settingsSegmented('FULL_DISK', 'Bij volle schijf', '', v.FULL_DISK, [
+              { v: 'keep',  label: 'behouden' },
+              { v: 'purge', label: 'wissen' },
             ])
           + '<div class="menu-save-row">'
           + '  <span class="save-state" id="saveState"></span>'
-          + '  <button type="button" id="saveBtn" disabled>save</button>'
+          + '  <button type="button" id="saveBtn" disabled>opslaan</button>'
           + '</div>'
           + '</div>';
         wireSettingsControls(adminBody);

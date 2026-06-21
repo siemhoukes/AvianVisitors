@@ -147,6 +147,21 @@
     .top .window-pick button { font-size: 8px; padding: 5px 7px; letter-spacing: 0.08em; }
   }
 
+  /* Custom date-range popover under the window picker (DATUM selected). */
+  .win-range {
+    position: fixed; top: 60px; left: 28px; z-index: 31;
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    padding: 8px 12px; background: var(--paper); border-radius: 12px;
+    box-shadow: var(--edge-lg);
+    font: 11px/1 ui-monospace, Menlo, monospace; color: var(--ink-soft);
+  }
+  .win-range[hidden] { display: none; }   /* author rule must beat .win-range's display:flex */
+  .win-range input {
+    font: inherit; color: var(--ink); background: var(--paper-2);
+    border: 1px solid var(--hairline); border-radius: 7px; padding: 4px 7px; margin-left: 4px;
+  }
+  @media (max-width: 700px) { .win-range { top: 46px; left: 12px; right: 12px; } }
+
   /* ============ Bottom slider - recessed track, raised active pill ============ */
   .slider {
     position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
@@ -1590,3 +1605,114 @@
  * See avian/forwarding/. */
 body.av-local #dd-locked { display: none; }
 body.av-local #dd-items  { display: block; }
+
+/* ============ App toast + missing-illustration placeholder ============
+ * A faint kachō-e bird stands in for any cutout that fails to load, and a
+ * small bottom-centre toast names species that still need an illustration.
+ * Click the toast to dismiss; it also auto-hides. */
+  .app-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%) translateY(8px);
+    z-index: 60;
+    max-width: min(92vw, 440px);
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: var(--paper);
+    color: var(--ink-2);
+    box-shadow: var(--edge-lg);
+    font-size: 13px;
+    line-height: 1.35;
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  .app-toast[data-show="true"] {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  img.img-missing {
+    object-fit: contain;
+    padding: 12%;
+    opacity: 0.85;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-toast { transition: none; }
+  }
+
+/* ============ Reisjournaal (route map view #v3) ============ */
+  .view#v3 { position: relative; display: flex; flex-direction: column; overflow: hidden; padding: 8px 32px 88px; }
+  @media (max-width: 700px) { .view#v3 { padding: 8px 16px 88px; } }
+  #tripMap { flex: 1; min-height: 0; border-radius: 12px; overflow: hidden; background: var(--paper-3); box-shadow: var(--edge); }
+  .map-offline { padding: 24px; text-align: center; color: var(--ink-soft); font-size: 13px; }
+  /* "locaties" button - top-left over the map */
+  .map-stops-btn {
+    position: absolute; top: 18px; left: 44px; z-index: 1000;
+    padding: 7px 13px; border: none; border-radius: 20px;
+    background: var(--paper); color: var(--ink-2); box-shadow: var(--edge-lg);
+    font: 11px/1 ui-monospace, Menlo, monospace; letter-spacing: 0.12em;
+    text-transform: lowercase; cursor: pointer;
+  }
+  @media (max-width: 700px) { .map-stops-btn { left: 28px; top: 14px; } }
+  /* move-mode hint banner */
+  .map-hint {
+    position: absolute; top: 18px; left: 50%; transform: translateX(-50%); z-index: 650;
+    margin: 0; padding: 8px 14px; max-width: 80%; text-align: center;
+    background: var(--ink); color: var(--paper); border-radius: 10px;
+    font-size: 12px; box-shadow: var(--edge-lg);
+  }
+  .map-empty {
+    position: absolute; left: 50%; top: 56%; transform: translate(-50%, -50%);
+    max-width: 80%; text-align: center; color: var(--ink-2); font-size: 13px;
+    background: var(--paper); padding: 8px 14px; border-radius: 10px; box-shadow: var(--edge-lg); z-index: 500;
+  }
+  /* Ink pin (Leaflet divIcon) */
+  .loc-pin {
+    display: flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg); background: var(--ink); color: var(--paper);
+    border: 2px solid var(--paper); box-shadow: 0 2px 5px rgba(26, 22, 18, 0.45);
+    font-size: 11px; font-weight: 700;
+  }
+  .loc-pin span { transform: rotate(45deg); }
+  /* Location detail panel - slides in over the map when a pin is clicked */
+  .loc-panel {
+    position: absolute; top: 8px; right: 32px; bottom: 96px; width: min(340px, 80vw);
+    display: flex; flex-direction: column; overflow: hidden; z-index: 600;
+    background: var(--paper); border-radius: 12px; box-shadow: var(--edge-lg);
+    transform: translateX(calc(100% + 48px)); transition: transform 0.28s cubic-bezier(.7, .05, .2, 1);
+  }
+  .loc-panel[aria-hidden="false"] { transform: none; }
+  @media (max-width: 700px) { .loc-panel { right: 16px; left: 16px; width: auto; } }
+  .loc-head { display: flex; align-items: flex-start; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--hairline); flex: none; }
+  .loc-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .loc-sub { margin: 2px 0 0; font-size: 11px; color: var(--ink-soft); }
+  .loc-close { margin-left: auto; border: none; background: transparent; font-size: 22px; line-height: 1; color: var(--ink-soft); cursor: pointer; }
+  .loc-list { list-style: none; margin: 0; padding: 6px; overflow: auto; }
+  .loc-list li { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+  .loc-list li:hover { background: var(--paper-2); }
+  .loc-list img { width: 40px; height: 40px; object-fit: contain; flex: none; }
+  .loc-list .nm { flex: 1; font-size: 13px; }
+  .loc-list .nm small { display: block; color: var(--ink-soft); font-size: 11px; }
+  .loc-list .ct { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  /* All-stops menu (move/delete) - mirrors loc-panel but slides in from the left */
+  .stops-panel { left: 32px; right: auto; transform: translateX(calc(-100% - 48px)); }
+  .stops-panel[aria-hidden="false"] { transform: none; }
+  @media (max-width: 700px) { .stops-panel { left: 16px; right: 16px; width: auto; } }
+  .stops-list { list-style: none; margin: 0; padding: 6px; overflow: auto; }
+  .stops-list li { padding: 8px; border-radius: 8px; }
+  .stops-list li + li { border-top: 1px solid var(--hairline); }
+  .stops-list .st-main { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .stops-list .st-main b { font-weight: 600; }
+  .stops-list .st-sub { font-size: 11px; color: var(--ink-soft); margin: 2px 0 6px; }
+  .stops-list .st-actions { display: flex; gap: 6px; }
+  .stops-list .st-actions button {
+    font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--hairline); background: var(--paper-2); color: var(--ink-2);
+  }
+  .stops-list .st-actions button.danger { color: #8a2f2f; }
+  .stops-list li.active { background: var(--paper-2); outline: 1px solid var(--accent); }

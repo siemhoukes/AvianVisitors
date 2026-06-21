@@ -92,34 +92,45 @@ switch ($action) {
     }
 
     case 'recent': {
-        // Cap raised to 1,000,000 hours (~114 years) so the frontend's
-        // "ALL" button can turn off the time filter without needing a
-        // separate code path.
+        // Two filter modes share this action's response shape:
+        //   ?hours=N           - rolling window (1..1,000,000h; ALL = the cap)
+        //   ?from=&to=         - custom date range (DATUM picker), inclusive
+        // $win is the WHERE fragment + bind shared by both queries below.
+        $from = (string)($_GET['from'] ?? '');
+        $to   = (string)($_GET['to'] ?? '');
+        $useRange = ($from !== '' || $to !== '');
         $hours = max(1, min(1000000, (int)($_GET['hours'] ?? 24)));
+        if ($useRange) {
+            $conds = []; $bind = [];
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) { $conds[] = 'Date >= :from'; $bind[':from'] = $from; }
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $to))   { $conds[] = 'Date <= :to';   $bind[':to'] = $to; }
+            $win = $conds ? implode(' AND ', $conds) : '1=1';
+        } else {
+            $win = "(julianday('now','localtime') - julianday(Date||' '||Time)) * 24 <= :hrs";
+            $bind = [':hrs' => $hours];
+        }
         // species-collapsed view: one row per species seen in the window,
         // with the file of its highest-confidence detection inside the window.
         $rs = rows($db,
           "SELECT Sci_Name AS sci, Com_Name AS com, COUNT(*) AS n, MAX(Confidence) AS best_conf, "
         . "       MAX(Date||' '||Time) AS last_seen "
-        . "FROM detections "
-        . "WHERE (julianday('now','localtime') - julianday(Date||' '||Time)) * 24 <= :hrs "
+        . "FROM detections WHERE $win "
         . "GROUP BY Sci_Name ORDER BY last_seen DESC",
-          [':hrs' => $hours]
+          $bind
         );
         // for each row, attach the file of the top-confidence detection in the window
         foreach ($rs as &$r) {
             $best = one($db,
               "SELECT File_Name AS file, Date AS d, Time AS t, Confidence AS conf "
-            . "FROM detections "
-            . "WHERE Sci_Name = :sn "
-            . "AND (julianday('now','localtime') - julianday(Date||' '||Time)) * 24 <= :hrs "
+            . "FROM detections WHERE Sci_Name = :sn AND $win "
             . "ORDER BY Confidence DESC LIMIT 1",
-              [':sn' => $r['sci'], ':hrs' => $hours]
+              array_merge($bind, [':sn' => $r['sci']])
             );
             $r['top_file'] = $best['file'] ?? null;
             $r['top_at']   = isset($best['d']) ? ($best['d'].' '.$best['t']) : null;
         }
-        echo json_encode(['hours' => $hours, 'species' => $rs, 'as_of' => date('c')]);
+        echo json_encode(['hours' => $hours, 'from' => $from, 'to' => $to,
+                          'species' => $rs, 'as_of' => date('c')]);
         break;
     }
 
@@ -179,6 +190,55 @@ switch ($action) {
         . "       COUNT(*) AS total "
         . "FROM detections GROUP BY Sci_Name ORDER BY first_seen DESC LIMIT :lim",
           [':lim' => $limit]
+        );
+        echo json_encode(['species' => $rs, 'as_of' => date('c')]);
+        break;
+    }
+
+    case 'mapconfig': {
+        // Stadia Maps key for the watercolour basemap (set in php-fpm env).
+        echo json_encode(['stadia_key' => getenv('STADIA_API_KEY') ?: '']);
+        break;
+    }
+
+    case 'locations': {
+        // One entry per stop (group by stored lat/lon) with the birds heard
+        // there - powers the Reisjournaal map pins + their detail panel.
+        $rs = rows($db,
+          "SELECT Lat AS lat, Lon AS lon, Sci_Name AS sci, Com_Name AS com, COUNT(*) AS n, "
+        . "       MIN(Date||' '||Time) AS first_seen, MAX(Date||' '||Time) AS last_seen "
+        . "FROM detections WHERE Lat IS NOT NULL AND Lat <> 0 "
+        . "GROUP BY Lat, Lon, Sci_Name ORDER BY Lat, Lon, n DESC"
+        );
+        $locs = []; $order = [];
+        foreach ($rs as $r) {
+            $key = $r['lat'] . ',' . $r['lon'];
+            if (!isset($locs[$key])) {
+                $locs[$key] = ['lat' => (float)$r['lat'], 'lon' => (float)$r['lon'], 'n' => 0,
+                               'species' => [], 'first_seen' => $r['first_seen'], 'last_seen' => $r['last_seen']];
+                $order[] = $key;
+            }
+            $locs[$key]['species'][] = ['sci' => $r['sci'], 'com' => $r['com'], 'n' => (int)$r['n'],
+                                        'first_seen' => $r['first_seen'], 'last_seen' => $r['last_seen']];
+            $locs[$key]['n'] += (int)$r['n'];
+            if ($r['first_seen'] < $locs[$key]['first_seen']) $locs[$key]['first_seen'] = $r['first_seen'];
+            if ($r['last_seen'] > $locs[$key]['last_seen']) $locs[$key]['last_seen'] = $r['last_seen'];
+        }
+        $out = [];
+        foreach ($order as $k) $out[] = $locs[$k];
+        echo json_encode(['locations' => $out, 'as_of' => date('c')]);
+        break;
+    }
+
+    case 'journey': {
+        // First-heard location per species, for the Reisjournaal route map.
+        // SQLite carries the MIN row's bare columns, so Lat/Lon come from the
+        // earliest detection. Skips rows with no/zero location.
+        $rs = rows($db,
+          "SELECT Sci_Name AS sci, Com_Name AS com, Lat AS lat, Lon AS lon, "
+        . "       MIN(Date||' '||Time) AS first_seen, COUNT(*) AS n "
+        . "FROM detections WHERE Lat IS NOT NULL AND Lat <> 0 "
+        . "GROUP BY Sci_Name ORDER BY first_seen ASC"
         );
         echo json_encode(['species' => $rs, 'as_of' => date('c')]);
         break;
