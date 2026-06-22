@@ -1,0 +1,25 @@
+[Unit]
+# AvianVisitors -> GeekMagic SmallTV-Ultra: push a packed last-24h collage.
+# Install: substitute __USER__/__HOME__ and drop in /etc/systemd/system/
+#   sed -e "s|__USER__|$USER|g" -e "s|__HOME__|$HOME|g" \
+#     ~/BirdNET-Pi/templates/smalltv_push.service \
+#     | sudo tee /etc/systemd/system/smalltv_push.service >/dev/null
+#   sudo systemctl daemon-reload && sudo systemctl enable --now smalltv_push.service
+Description=AvianVisitors -> GeekMagic SmallTV collage push
+After=network-online.target birdnet_analysis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+# low priority so it never competes with the analyzer for CPU on the 3B+
+Nice=10
+# -u = unbuffered, so push logs reach journald live.  No --host: the script
+# auto-discovers the SmallTV on the LAN (cached IP -> /24 fingerprint scan),
+# so it just works after moving to a new network (e.g. the caravan).
+ExecStart=__HOME__/BirdNET-Pi/birdnet/bin/python3 -u __HOME__/BirdNET-Pi/scripts/smalltv_push.py --db __HOME__/BirdNET-Pi/scripts/birds.db --loop 300
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

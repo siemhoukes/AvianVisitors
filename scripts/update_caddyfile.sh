@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Writing /etc/caddy/Caddyfile needs root. Re-exec under sudo if we were run
+# as a normal user, otherwise the heredoc redirects below fail silently with
+# "permission denied" and the install_services.sh Caddyfile (which lacks the
+# index.html try_files override) stays active - so / serves the stock
+# BirdNET-Pi page instead of the AvianVisitors collage.
+if [ "$(id -u)" -ne 0 ]; then exec sudo -E bash "$0" "$@"; fi
 source /etc/birdnet/birdnet.conf
 my_dir=$HOME/BirdNET-Pi/scripts
 set -x

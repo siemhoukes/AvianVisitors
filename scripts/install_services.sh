@@ -497,6 +497,12 @@ install_services() {
   configure_caddy_php
   config_icecast
   USER=$USER HOME=$HOME ${my_dir}/scripts/createdb.sh
+  # AvianVisitors: install_Caddyfile wrote the stock php_fastcgi block, which
+  # makes / resolve to BirdNET-Pi's index.php instead of the collage index.html.
+  # Regenerate the Caddyfile so / serves the AvianVisitors UI (the index.html
+  # try_files override) with the version-correct PHP-FPM socket. The script
+  # self-elevates and is a safe full rewrite; || true keeps install resilient.
+  bash "${my_dir}/scripts/update_caddyfile.sh" || true
 }
 
 if [ -f ${config_file} ];then
