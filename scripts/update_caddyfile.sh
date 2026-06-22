@@ -38,6 +38,15 @@ http:// ${BIRDNETPI_URL} {
   basicauth /stream {
     birdnet ${HASHWORD}
   }
+  # AvianVisitors: keep recorded mic audio + the map's write endpoint private
+  # too (live /stream above is only half the story). Collage/atlas/map/stats
+  # read APIs stay open; spectrogram images stay open so the UI still renders.
+  basicauth /avian/api/recording.php* {
+    birdnet ${HASHWORD}
+  }
+  basicauth /avian/api/location-edit.php* {
+    birdnet ${HASHWORD}
+  }
   basicauth /phpsysinfo* {
     birdnet ${HASHWORD}
   }

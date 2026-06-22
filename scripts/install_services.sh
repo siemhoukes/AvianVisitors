@@ -201,6 +201,13 @@ http:// ${BIRDNETPI_URL} {
   basicauth /stream {
     birdnet ${HASHWORD}
   }
+  # AvianVisitors: also lock recorded mic audio + the map write endpoint.
+  basicauth /avian/api/recording.php* {
+    birdnet ${HASHWORD}
+  }
+  basicauth /avian/api/location-edit.php* {
+    birdnet ${HASHWORD}
+  }
   basicauth /phpsysinfo* {
     birdnet ${HASHWORD}
   }
