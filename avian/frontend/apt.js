@@ -331,7 +331,11 @@
   // broken-image icon. Instead swap in a faint kachō-e placeholder and,
   // once per species, surface a Dutch notice (persisted + logged) so the
   // owner knows to pre-generate a proper illustration later.
-  var PLACEHOLDER_IMG = 'data:image/svg+xml,' + encodeURIComponent(
+  // Primary placeholder: a generic muted-grey kachō-e bird (Gemini-generated,
+  // bundled). PLACEHOLDER_SVG is the dependency-free last resort if even that
+  // asset can't load (keeps the never-broken-image guarantee offline).
+  var PLACEHOLDER_IMG = './avian/assets/placeholder.png?v=' + SKETCH_VERSION;
+  var PLACEHOLDER_SVG = 'data:image/svg+xml,' + encodeURIComponent(
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'>" +
     "<g fill='#908576' opacity='0.4'>" +
     "<ellipse cx='50' cy='68' rx='30' ry='21'/><circle cx='78' cy='50' r='13'/>" +
@@ -362,8 +366,14 @@
       : 'Nog geen illustratie voor ' + names.length + ' soorten: ' + names.join(', ') + '.');
   }
   function onBirdImgError(imgEl, sci, com) {
-    if (!imgEl || imgEl.dataset.fallback) return;   // already swapped - avoid a loop
-    imgEl.dataset.fallback = '1';
+    if (!imgEl) return;
+    if (imgEl.dataset.fallback === '2') return;           // already at last resort
+    if (imgEl.dataset.fallback === '1') {                 // PNG placeholder failed -> inline SVG
+      imgEl.dataset.fallback = '2';
+      imgEl.src = PLACEHOLDER_SVG;
+      return;
+    }
+    imgEl.dataset.fallback = '1';                         // cutout 404 -> kachō-e placeholder
     imgEl.src = PLACEHOLDER_IMG;
     imgEl.classList.add('img-missing');
     reportMissing(sci, com);
