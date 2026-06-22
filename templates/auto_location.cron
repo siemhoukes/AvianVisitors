@@ -1,4 +1,2 @@
 #birdnet
 @reboot root /usr/local/bin/auto_location.sh >/dev/null 2>&1
-#birdnet
-0 */2 * * * root /usr/local/bin/auto_location.sh >/dev/null 2>&1
