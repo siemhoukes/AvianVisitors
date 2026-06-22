@@ -341,6 +341,12 @@
     "<ellipse cx='50' cy='68' rx='30' ry='21'/><circle cx='78' cy='50' r='13'/>" +
     "<path d='M89 47 L106 43 L91 55 Z'/><path d='M22 62 q-15 7 -1 18 q5 -9 17 -9 Z'/>" +
     "</g><circle cx='82' cy='47' r='2.2' fill='#fcfcfb'/></svg>");
+  // Register the placeholder's silhouette so an undrawn species can still nest
+  // in the collage (build_masks.py only rewrites the `var MASKS = {...}` line,
+  // so these runtime keys survive a mask rebuild). Slug starts with '_' so it
+  // can never collide with a real species slug.
+  DIMS['_placeholder'] = [560, 435];
+  MASKS['_placeholder'] = {"w":93,"h":72,"bits":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8AAAAAAAAAAAAAB/+AAAAAAAAAAAAA//8AAAAAAAAAAAAP//wAAAAAAAAAAAH///AAAAAAAAAAAB///8AAAAAAAAAAAf///+AAAAAAAAAAH////4AAAAAAAAAA////wAAAAAAAAAAP///8AAAAAAAAAAD////AAAAAAAAAAA////4AAAAAAAAAAP///+AAAAAAAAAAP////wAAAAAAAAAH////8AAAAAAAAAD/////gAAAAAAAAB/////8AAAAAAAAAf/////AAAAAAAAAP/////4AAAAAAAAD//////AAAAAAAAB//////4AAAAAAAAf//////AAAAAAAAH//////4AAAAAAAB///////AAAAAAAAf//////4AAAAAAAP///////AAAAAAAD///////4AAAAAAA////////AAAAAAAP///////4AAAAAAD///////+AAAAAAA////////wAAAAAAP///////8AAAAAAD////////gAAAAAA////////4AAAAAAH////////AAAAAAB////////wAAAAAAf///////8AAAAAAH////////AAAAAAB////////wAAAAAA////////+AAAAAAM////////gAAAAAAP///////wAAAAAAD///////8AAAAAAA////////AAAAAAAP///////wAAAAAAH///////4AAAAAAB//5////8AAAAAAAf/AD///+AAAAAAAP+AAD///AAAAAAAD/gAAAH/AAAAAAAA/wAAAA54AAAAAAAf8AAACAAgAAAAAAH/AAAAIABgAAAAAB/wAAAAQADAAAAAAf8AAAABAACAAAAAH/AAAAAEAAeIAAAB/gAAAAAQAgnAAAAf4AAAAABAAACAAAD+AAAAAAEAAAAAAA/gAAAAAAQAAQAAAAAAAAAAABgAAAAAAAAAAAAAEfwAAAAAAAAAAAAAAQAAAAAAAAAAAAAABBAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"};
   var _toastTimer = null;
   function notify(msg) {
     var el = document.getElementById('appToast');
@@ -552,7 +558,11 @@
       var slug = pose === 2 ? base + '-2' : base;
       var mask = loadMask(slug);
       if (!mask && pose === 2) { pose = 1; slug = base; mask = loadMask(slug); collagePose[s.sci] = 1; }
-      if (!mask) return null;
+      if (!mask) {                 // undrawn species -> generic '?' placeholder silhouette
+        pose = 1; slug = '_placeholder'; collagePose[s.sci] = 1;
+        mask = loadMask('_placeholder');
+      }
+      if (!mask) return null;      // (only if the placeholder mask itself is unavailable)
       var d = DIMS[slug];
       var n = +s.n; if (!n || isNaN(n)) n = 1;
       return {
