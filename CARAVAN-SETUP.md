@@ -9,6 +9,30 @@ Placeholders to fill in: `<HOME_WIFI_SSID>`, `<HOME_WIFI_PW>`, `<PI_USER>`,
 
 ---
 
+## Shipped state (this unit, June 2026)
+
+The caravan Pi (`sjeng@birdnet`, Debian Trixie) went out configured as below.
+
+**Access**
+- Public collage: **https://eribavogels.siem.codes** (Cloudflare Tunnel `eribavogels`, auto-reconnects from any network; works behind the caravan router with no port-forward).
+- Local: `http://birdnet.local/`. Remote/SSH from anywhere: **Tailscale** (`birdnet-caravan`, `100.108.144.29`); `tailscaled` enabled on boot. (Tip: disable key-expiry for that node in the Tailscale admin console.)
+- WiFi auto-joins, priority: caravan `TRITONQB2.4` > `TRITONQB5` > work `Innotractor` > home `netwerktedienog`. Ethernet is primary when plugged in. Add more: `sudo nmcli device wifi connect "<ssid>" password "<pw>"`.
+
+**Password (the whole "menu/instellingen" + audio + map)**
+- Set via `CADDY_PWD` in `birdnet.conf` (regen with `update_caddyfile.sh`). Username is always `birdnet`; the in-app **menu lock screen** only asks for the password. Enter once → saved in the browser (`localStorage`) → stays logged in.
+- **Open to everyone:** collage, atlas, stats, the kaart *basemap*. **Locked:** the menu/settings (`menu.php`), live audio (`/stream`), recordings, `/terminal`, `/scripts`, `phpsysinfo`, and the **map pins/locations** + edits.
+- Settings live on the **`#admin=settings`** page (behind the password): theme, recording prefs, **Live geluid tonen** (mic stream, OFF by default), and **Scherm-collage toont** (SmallTV window: 8u/24u/7d/deze plek).
+
+**SmallTV (GeekMagic)** — `smalltv_push.service` composes the last-24h (or chosen-window) collage and pushes it; auto-discovers the device on the LAN every 30s (survives IP/network changes). At a new site the SmallTV must join the same WiFi (its own AP-fallback / `http://<ip>/network.html`).
+
+**Location** — auto-location is ON: it follows real moves (≥50 km from the last auto-fix) and re-anchors; a hand-moved map pin updates where new birds land and **sticks until the next real move** (auto + manual merge cleanly).
+
+**Power** — use a solid **5V/3A** supply + a good cable (the unit showed under-voltage under load on a marginal supply).
+
+> The app shell (`/`, `apt.js`, `styles.css`) is served `Cache-Control: no-cache`, so UI updates appear on a normal reload — no manual cache-clearing.
+
+---
+
 ## 1. Flash the SD card (Raspberry Pi Imager)
 
 - **SD card:** **≥ 32 GB.**
