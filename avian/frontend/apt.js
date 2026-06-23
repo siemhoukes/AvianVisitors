@@ -108,6 +108,15 @@
   }
   btns.forEach(function (b) { b.addEventListener('click', function () { go(+b.dataset.i); }); });
 
+  // The views are a transform slider (no overflow clip on .views), so if an
+  // element in an off-screen panel takes focus - or a trackpad nudges sideways -
+  // the clip-ancestor can scroll horizontally and drift the collage onto the
+  // neighbouring stats panel. The transform is the ONLY thing that should
+  // position the views, so pin any sideways scroll back to 0.
+  [views, views && views.parentElement].forEach(function (el) {
+    if (el) el.addEventListener('scroll', function () { if (el.scrollLeft) el.scrollLeft = 0; }, { passive: true });
+  });
+
   // ---- Window picker ----
   // Persist selections across reloads so a returning visitor lands on the
   // same view they left. Keys are namespaced so a future schema change
