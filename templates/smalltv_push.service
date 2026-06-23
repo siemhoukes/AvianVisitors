@@ -17,7 +17,7 @@ Nice=10
 # -u = unbuffered, so push logs reach journald live.  No --host: the script
 # auto-discovers the SmallTV on the LAN (cached IP -> /24 fingerprint scan),
 # so it just works after moving to a new network (e.g. the caravan).
-ExecStart=__HOME__/BirdNET-Pi/birdnet/bin/python3 -u __HOME__/BirdNET-Pi/scripts/smalltv_push.py --db __HOME__/BirdNET-Pi/scripts/birds.db --loop 300
+ExecStart=__HOME__/BirdNET-Pi/birdnet/bin/python3 -u __HOME__/BirdNET-Pi/scripts/smalltv_push.py --db __HOME__/BirdNET-Pi/scripts/birds.db --loop 30
 Restart=always
 RestartSec=30
 

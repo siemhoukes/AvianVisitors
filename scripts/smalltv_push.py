@@ -352,7 +352,8 @@ def main():
     ap.add_argument("--out", help="save the composed 240x240 collage here (preview, no device)")
     ap.add_argument("--hours", type=int, default=24)
     ap.add_argument("--limit", type=int, default=24, help="max birds (device storage / legibility cap)")
-    ap.add_argument("--loop", type=int, default=0, help="re-push every N seconds (re-discovers if the network changes)")
+    ap.add_argument("--loop", type=int, default=0, help="check every N seconds (re-discovers if the network changes)")
+    ap.add_argument("--count-refresh", type=int, default=300, help="when only detection COUNTS changed (same species), re-push at most every N seconds - spares the device flash")
     ap.add_argument("--image", help="push THIS image file to the SmallTV (fit to 240x240) - API test")
     ap.add_argument("--discover", action="store_true", help="just find + print the SmallTV IP and exit")
     args = ap.parse_args()
@@ -379,21 +380,29 @@ def main():
 
     if args.loop:
         host = args.host
-        last_sig = None
+        last_set = None; last_sig = None; last_push = 0.0
         while True:
             if not host:
                 host = discover_host(args.cache)
                 if not host:
                     print("[smalltv] no device found on this network; retrying"); time.sleep(min(args.loop, 60)); continue
                 print(f"[smalltv] discovered SmallTV at {host}")
-                last_sig = None   # force a push after (re)connecting
+                last_set = None; last_sig = None   # force a push after (re)connecting
             try:
                 sp = recent_species(Path(args.db), args.hours, args.limit)
+                cur_set = frozenset(s["sci"] for s in sp)
                 sig = _signature(sp)
-                if sp and sig != last_sig:
+                now = time.monotonic()
+                set_changed = cur_set != last_set
+                count_changed = sig != last_sig
+                # Push immediately when a species appears/drops off (the event worth
+                # seeing). For count-only changes - a bird that keeps singing ticks
+                # its count every few seconds - re-push at most every count_refresh
+                # seconds so frequent polling doesn't wear the device's flash.
+                if sp and (set_changed or (count_changed and now - last_push >= args.count_refresh)):
                     compose_and_upload(_norm(host), sp)
-                    print(f"[smalltv] pushed {len(sp)} birds (last {args.hours}h) -> {host}")
-                    last_sig = sig
+                    print(f"[smalltv] pushed {len(sp)} birds ({'new species' if set_changed else 'count refresh'}) -> {host}")
+                    last_set = cur_set; last_sig = sig; last_push = now
             except (urllib.error.URLError, OSError) as e:
                 print(f"[smalltv] push failed ({e}); will re-discover"); host = None
             except Exception as e:

@@ -59,6 +59,13 @@ http:// ${BIRDNETPI_URL} {
   basicauth /terminal* {
     birdnet ${HASHWORD}
   }
+  # AvianVisitors: the kaart/map reveals where you are + your travel stops, so
+  # gate its data (locations/mapconfig/journey actions on birdnet-api.php). The
+  # collage/atlas/stats (recent/species/stats actions) stay open for the family.
+  @mapdata query action=locations action=mapconfig action=journey
+  basicauth @mapdata {
+    birdnet ${HASHWORD}
+  }
   reverse_proxy /stream localhost:8000
   # AvianVisitors overlay drops an index.html alongside BirdNET-Pi's
   # index.php. The default try_files for php_fastcgi prefers index.php
