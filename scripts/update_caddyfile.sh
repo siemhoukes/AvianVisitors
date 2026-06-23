@@ -62,7 +62,7 @@ http:// ${BIRDNETPI_URL} {
   # AvianVisitors: the kaart/map reveals where you are + your travel stops, so
   # gate its data (locations/mapconfig/journey actions on birdnet-api.php). The
   # collage/atlas/stats (recent/species/stats actions) stay open for the family.
-  @mapdata query action=locations action=mapconfig action=journey
+  @mapdata query action=locations action=journey
   basicauth @mapdata {
     birdnet ${HASHWORD}
   }

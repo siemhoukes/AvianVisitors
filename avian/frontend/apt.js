@@ -115,6 +115,22 @@
   function readLS(k, fallback) { try { return localStorage.getItem(k) || fallback; } catch (e) { return fallback; } }
   function writeLS(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
+  // ---- Shared basic-auth for the password-gated endpoints (map pins + edits,
+  // and the menu drawer). Set when the user unlocks; kept for the browser
+  // session so pins stay visible without re-asking. Sent explicitly because a
+  // fetch's manually-set Authorization header isn't auto-reused by the browser.
+  var AV_AUTH = '';
+  try { AV_AUTH = sessionStorage.getItem('bird:auth') || ''; } catch (e) {}
+  function authHeaders(extra) {
+    var h = extra || {};
+    if (AV_AUTH) h['Authorization'] = AV_AUTH;
+    return h;
+  }
+  function setAuth(hdr) {
+    AV_AUTH = hdr || '';
+    try { hdr ? sessionStorage.setItem('bird:auth', hdr) : sessionStorage.removeItem('bird:auth'); } catch (e) {}
+  }
+
   // ---- Single-audio coordinator ----
   // Only one source plays at a time across the whole app: atlas-card
   // playback, modal recording playback, and the live stream each call
@@ -1600,7 +1616,8 @@
       credentials: 'same-origin',
     }).then(function (r) {
       if (r.status === 200) {
-        return r.json().then(function (j) { renderMenu(j.items || []); });
+        setAuth(hdr);                       // same password unlocks the map pins
+        return r.json().then(function (j) { renderMenu(j.items || []); if (typeof currentView !== 'undefined' && currentView === 3) renderMap(); });
       } else if (r.status === 401) {
         lockHint.textContent = 'onjuist wachtwoord.';
         lockHint.classList.add('lock-err');
@@ -2446,26 +2463,58 @@
     locPanel.setAttribute('aria-hidden', 'false');
   }
   function closeLocPanel() { if (locPanel) locPanel.setAttribute('aria-hidden', 'true'); }
+  // The pins reveal where you've been (location + travel), so the locations
+  // data is password-gated. Rather than letting the fetch 401 into an ugly
+  // error, the basemap stays visible and the pins hide behind an unlock.
+  var EMPTY_TXT = mapEmptyEl ? mapEmptyEl.innerHTML : '';
+  function showMapLocked(msg) {
+    if (mapLayer) mapLayer.clearLayers();
+    if (!mapEmptyEl) return;
+    mapEmptyEl.innerHTML = '🔒 Locaties zijn met een wachtwoord beschermd.'
+      + (msg ? '<br><span class="lock-err">' + msg + '</span>' : '')
+      + '<br><button type="button" class="map-stops-btn" id="mapUnlock" style="position:static;margin-top:10px">wachtwoord invoeren</button>';
+    mapEmptyEl.hidden = false;
+    var b = document.getElementById('mapUnlock');
+    if (b) b.addEventListener('click', promptMapUnlock);
+  }
+  function promptMapUnlock() {
+    var p = window.prompt('Wachtwoord om de locaties te tonen:');
+    if (p == null) return;
+    var hdr = 'Basic ' + btoa((window.AV_AUTH_USER || 'birdnet') + ':' + p);
+    fetch('./avian/api/birdnet-api.php?action=locations', { cache: 'no-store', headers: { 'Authorization': hdr } })
+      .then(function (r) {
+        if (r.status === 200) { setAuth(hdr); renderMap(); }
+        else if (r.status === 401) { showMapLocked('Onjuist wachtwoord.'); }
+        else { showMapLocked('Niet beschikbaar.'); }
+      }).catch(function () { showMapLocked('Netwerkfout.'); });
+  }
   function renderMap() {
     if (!lmap || !mapLayer) return;
-    fetchJson('./avian/api/birdnet-api.php?action=locations').then(function (j) {
-      var locs = (j.locations || []).filter(function (l) { return l.lat && l.lon; });
-      mapLayer.clearLayers();
-      if (mapEmptyEl) mapEmptyEl.hidden = locs.length > 0;
-      if (!locs.length) return;
-      var pts = [];
-      locs.forEach(function (loc) {
-        var ll = [+loc.lat, +loc.lon]; pts.push(ll);
-        var m = L.marker(ll, { icon: pinIcon(loc.species.length), draggable: true }).addTo(mapLayer);
-        m.on('click', function () { openLocPanel(loc); });
-        m.on('dragend', function (e) { editStop(loc, 'move', e.target.getLatLng()); });  // drag-to-fix
-      });
-      if (pts.length > 1) {
-        L.polyline(pts, { color: '#4a3f31', weight: 2, opacity: 0.5, dashArray: '4 6' }).addTo(mapLayer);
-      }
-      if (pts.length === 1) lmap.setView(pts[0], 9);
-      else lmap.fitBounds(L.latLngBounds(pts).pad(0.25));
-    }).catch(function () { if (mapEmptyEl) mapEmptyEl.hidden = false; });
+    if (!AV_AUTH) { showMapLocked(); return; }       // need the password first
+    fetch('./avian/api/birdnet-api.php?action=locations', { cache: 'no-store', headers: authHeaders() })
+      .then(function (r) {
+        if (r.status === 401) { setAuth(''); showMapLocked('Onjuist wachtwoord.'); return null; }
+        return r.ok ? r.json() : null;
+      })
+      .then(function (j) {
+        if (!j) return;
+        var locs = (j.locations || []).filter(function (l) { return l.lat && l.lon; });
+        mapLayer.clearLayers();
+        if (mapEmptyEl) { mapEmptyEl.innerHTML = EMPTY_TXT; mapEmptyEl.hidden = locs.length > 0; }
+        if (!locs.length) return;
+        var pts = [];
+        locs.forEach(function (loc) {
+          var ll = [+loc.lat, +loc.lon]; pts.push(ll);
+          var m = L.marker(ll, { icon: pinIcon(loc.species.length), draggable: true }).addTo(mapLayer);
+          m.on('click', function () { openLocPanel(loc); });
+          m.on('dragend', function (e) { editStop(loc, 'move', e.target.getLatLng()); });  // drag-to-fix
+        });
+        if (pts.length > 1) {
+          L.polyline(pts, { color: '#4a3f31', weight: 2, opacity: 0.5, dashArray: '4 6' }).addTo(mapLayer);
+        }
+        if (pts.length === 1) lmap.setView(pts[0], 9);
+        else lmap.fitBounds(L.latLngBounds(pts).pad(0.25));
+      }).catch(function () { /* network blip - leave the map as-is */ });
   }
   // Persist a stop's new coords (move) or remove it (delete) via the write API.
   // Moves push their inverse onto moveUndo so Ctrl+Z can reverse them.
@@ -2474,7 +2523,7 @@
     var body = { op: op, old_lat: loc.lat, old_lon: loc.lon };
     if (op === 'move') { body.new_lat = np.lat; body.new_lon = np.lng; }
     return fetch('./avian/api/location-edit.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body)
     }).then(function () {
       if (op === 'move') {                          // inverse: move it from np back to loc
         moveUndo.push({ old_lat: np.lat, old_lon: np.lng, new_lat: loc.lat, new_lon: loc.lon });
@@ -2486,7 +2535,7 @@
     if (!moveUndo.length) { setHint('Niets om ongedaan te maken.'); setTimeout(function () { setHint(''); }, 1200); return; }
     var u = moveUndo.pop();
     fetch('./avian/api/location-edit.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ op: 'move', old_lat: u.old_lat, old_lon: u.old_lon, new_lat: u.new_lat, new_lon: u.new_lon })
     }).then(function () { renderMap(); setHint('Verplaatsing ongedaan gemaakt.'); setTimeout(function () { setHint(''); }, 1500); })
       .catch(function () { renderMap(); });
@@ -2544,7 +2593,11 @@
   function openStopsPanel() {
     if (!stopsPanel) return;
     closeLocPanel();
-    fetchJson('./avian/api/birdnet-api.php?action=locations').then(function (j) {
+    if (!AV_AUTH) { promptMapUnlock(); return; }
+    fetch('./avian/api/birdnet-api.php?action=locations', { cache: 'no-store', headers: authHeaders() })
+      .then(function (r) { if (r.status === 401) { setAuth(''); promptMapUnlock(); return null; } return r.ok ? r.json() : null; })
+      .then(function (j) {
+      if (!j) return;
       stopsData = (j.locations || []).filter(function (l) { return l.lat && l.lon; });
       stopsSubEl.textContent = stopsData.length + ' stop' + (stopsData.length === 1 ? '' : 's');
       stopsListEl.innerHTML = stopsData.map(function (loc, i) {
