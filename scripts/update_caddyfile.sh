@@ -66,6 +66,14 @@ http:// ${BIRDNETPI_URL} {
   basicauth @mapdata {
     birdnet ${HASHWORD}
   }
+  # SmallTV window setting: anyone may read it (GET), only authed users set it.
+  @tvconfigwrite {
+    method POST
+    path /avian/api/smalltv-config.php*
+  }
+  basicauth @tvconfigwrite {
+    birdnet ${HASHWORD}
+  }
   reverse_proxy /stream localhost:8000
   # AvianVisitors overlay drops an index.html alongside BirdNET-Pi's
   # index.php. The default try_files for php_fastcgi prefers index.php

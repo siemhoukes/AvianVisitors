@@ -1661,8 +1661,12 @@
       var cls = it.native ? '' : ' class="ext"';
       return '<a' + cls + ' href="' + it.href + '"' + attrs + '><span>' + label + '</span></a>';
     }).join('');
+    // Live mic stream is hidden by default (per-device toggle) - parents
+    // shouldn't see a "listen to the microphone" button unless turned on.
+    var showLive = readLS('bird:liveaudio', 'off') === 'on';
     items.innerHTML =
-      '<div class="live-audio" id="liveAudio" data-on="false">'
+      '<div id="liveWrap"' + (showLive ? '' : ' hidden') + '>'
+      + '<div class="live-audio" id="liveAudio" data-on="false">'
       + '  <div class="pulse"></div>'
       + '  <div class="label">Live geluid<span class="hint">stream van de microfoon</span></div>'
       + '  <button type="button" id="liveAudioBtn">'
@@ -1674,7 +1678,43 @@
       // real time. No separate toggle.
       + '<canvas class="live-spectro" id="liveSpectro" width="600" height="120" aria-label="live spectrogram"></canvas>'
       + '<div class="live-status" id="liveStatus"></div>'
+      + '</div>'
+      + '<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:13px;cursor:pointer;opacity:.85">'
+      +   '<input type="checkbox" id="liveToggle"' + (showLive ? ' checked' : '') + ' style="width:auto;margin:0"> live geluid tonen'
+      + '</label>'
+      + '<div id="tvWindow" style="padding:8px 12px;font-size:13px">'
+      +   '<div style="opacity:.7;margin-bottom:6px">scherm-collage toont:</div>'
+      +   '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+      +     ['8h:8 uur', '24h:24 uur', '7d:7 dagen', 'location:deze plek'].map(function (o) {
+              var p = o.split(':');
+              return '<button type="button" data-w="' + p[0] + '" style="padding:6px 10px;border-radius:6px;border:1px solid currentColor;background:none;color:inherit;cursor:pointer;font-size:12px;opacity:.55">' + p[1] + '</button>';
+            }).join('')
+      +   '</div>'
+      + '</div>'
       + '<div class="menu-links">' + linksHtml + '</div>';
+    var liveToggleEl = document.getElementById('liveToggle');
+    if (liveToggleEl) liveToggleEl.addEventListener('change', function () {
+      var on = liveToggleEl.checked;
+      writeLS('bird:liveaudio', on ? 'on' : 'off');
+      var w = document.getElementById('liveWrap');
+      if (w) w.hidden = !on;
+    });
+    // SmallTV collage window: read the current value (open GET), set on click
+    // (gated POST -> birdnet.conf, the push service reads it within a cycle).
+    var tvWin = document.getElementById('tvWindow');
+    if (tvWin) {
+      var tvBtns = tvWin.querySelectorAll('button[data-w]');
+      var markTv = function (w) { tvBtns.forEach(function (b) { var on = b.dataset.w === w; b.style.opacity = on ? '1' : '.55'; b.style.fontWeight = on ? '700' : '400'; }); };
+      fetch('./avian/api/smalltv-config.php', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { if (j && j.window) markTv(j.window); }).catch(function () {});
+      tvBtns.forEach(function (b) {
+        b.addEventListener('click', function () {
+          fetch('./avian/api/smalltv-config.php', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ window: b.dataset.w }) })
+            .then(function (r) { if (r.status === 200) markTv(b.dataset.w); else if (r.status === 401) promptMapUnlock(); });
+        });
+      });
+    }
 
     // Clicking a nav link (settings / system / logs / tools) collapses the
     // menu back into the button - it has opened (or navigated to) its page,

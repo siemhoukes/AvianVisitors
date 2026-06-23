@@ -247,6 +247,41 @@ def recent_species(db_path, hours, limit):
     return [dict(r) for r in rs]
 
 
+def species_at_location(db_path, lat, lon, limit, tol=0.02):
+    """All species ever heard at (lat,lon) - the 'deze plek' window, no time cap."""
+    c = sqlite3.connect(db_path); c.row_factory = sqlite3.Row
+    rs = c.execute(
+        "SELECT Sci_Name sci, COUNT(*) n FROM detections "
+        "WHERE abs(Lat-?)<? AND abs(Lon-?)<? GROUP BY Sci_Name ORDER BY n DESC LIMIT ?",
+        (lat, tol, lon, tol, limit)).fetchall()
+    c.close()
+    return [dict(r) for r in rs]
+
+
+WINDOW_HOURS = {"8h": 8, "24h": 24, "7d": 168}
+
+
+def _conf_get(key, default=None, path="/etc/birdnet/birdnet.conf"):
+    try:
+        for line in open(path):
+            if line.startswith(key + "="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return default
+
+
+def species_for_window(db_path, window, limit):
+    """Pick species by the configured SmallTV window: 8h / 24h / 7d / location."""
+    if window == "location":
+        try:
+            lat = float(_conf_get("LATITUDE", "0")); lon = float(_conf_get("LONGITUDE", "0"))
+        except (TypeError, ValueError):
+            return []
+        return species_at_location(db_path, lat, lon, limit)
+    return recent_species(db_path, WINDOW_HOURS.get(window, 24), limit)
+
+
 # ---- SmallTV HTTP API ----
 def _norm(host):
     return (host if host.startswith("http") else "http://" + host).rstrip("/")
@@ -389,7 +424,9 @@ def main():
                 print(f"[smalltv] discovered SmallTV at {host}")
                 last_set = None; last_sig = None   # force a push after (re)connecting
             try:
-                sp = recent_species(Path(args.db), args.hours, args.limit)
+                # window is read fresh each cycle from birdnet.conf, so a change
+                # in the menu (AV_SMALLTV_WINDOW) takes effect within one loop.
+                sp = species_for_window(args.db, _conf_get("AV_SMALLTV_WINDOW", "24h"), args.limit)
                 cur_set = frozenset(s["sci"] for s in sp)
                 sig = _signature(sp)
                 now = time.monotonic()
