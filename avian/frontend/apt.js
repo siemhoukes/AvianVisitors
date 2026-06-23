@@ -1682,42 +1682,7 @@
       + '<canvas class="live-spectro" id="liveSpectro" width="600" height="120" aria-label="live spectrogram"></canvas>'
       + '<div class="live-status" id="liveStatus"></div>'
       + '</div>'
-      + '<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:13px;cursor:pointer;opacity:.85">'
-      +   '<input type="checkbox" id="liveToggle"' + (showLive ? ' checked' : '') + ' style="width:auto;margin:0"> live geluid tonen'
-      + '</label>'
-      + '<div id="tvWindow" style="padding:8px 12px;font-size:13px">'
-      +   '<div style="opacity:.7;margin-bottom:6px">scherm-collage toont:</div>'
-      +   '<div style="display:flex;gap:6px;flex-wrap:wrap">'
-      +     ['8h:8 uur', '24h:24 uur', '7d:7 dagen', 'location:deze plek'].map(function (o) {
-              var p = o.split(':');
-              return '<button type="button" data-w="' + p[0] + '" style="padding:6px 10px;border-radius:6px;border:1px solid currentColor;background:none;color:inherit;cursor:pointer;font-size:12px;opacity:.55">' + p[1] + '</button>';
-            }).join('')
-      +   '</div>'
-      + '</div>'
       + '<div class="menu-links">' + linksHtml + '</div>';
-    var liveToggleEl = document.getElementById('liveToggle');
-    if (liveToggleEl) liveToggleEl.addEventListener('change', function () {
-      var on = liveToggleEl.checked;
-      writeLS('bird:liveaudio', on ? 'on' : 'off');
-      var w = document.getElementById('liveWrap');
-      if (w) w.hidden = !on;
-    });
-    // SmallTV collage window: read the current value (open GET), set on click
-    // (gated POST -> birdnet.conf, the push service reads it within a cycle).
-    var tvWin = document.getElementById('tvWindow');
-    if (tvWin) {
-      var tvBtns = tvWin.querySelectorAll('button[data-w]');
-      var markTv = function (w) { tvBtns.forEach(function (b) { var on = b.dataset.w === w; b.style.opacity = on ? '1' : '.55'; b.style.fontWeight = on ? '700' : '400'; }); };
-      fetch('./avian/api/smalltv-config.php', { cache: 'no-store' })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { if (j && j.window) markTv(j.window); }).catch(function () {});
-      tvBtns.forEach(function (b) {
-        b.addEventListener('click', function () {
-          fetch('./avian/api/smalltv-config.php', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ window: b.dataset.w }) })
-            .then(function (r) { if (r.status === 200) markTv(b.dataset.w); else if (r.status === 401) promptMapUnlock(); });
-        });
-      });
-    }
 
     // Clicking a nav link (settings / system / logs / tools) collapses the
     // menu back into the button - it has opened (or navigated to) its page,
@@ -1986,7 +1951,7 @@
   }
   function wireSettingsControls(scope) {
     scope = scope || document;
-    scope.querySelectorAll('.switch').forEach(function (sw) {
+    scope.querySelectorAll('.switch:not([data-instant])').forEach(function (sw) {
       sw.addEventListener('click', function () {
         var on = sw.getAttribute('aria-checked') !== 'true';
         sw.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -2004,7 +1969,7 @@
         setSaveState('wijziging in behandeling');
       });
     });
-    scope.querySelectorAll('.seg:not([data-theme-seg])').forEach(function (seg) {
+    scope.querySelectorAll('.seg:not([data-theme-seg]):not([data-instant-seg])').forEach(function (seg) {
       seg.querySelectorAll('button').forEach(function (b) {
         b.addEventListener('click', function () {
           seg.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-current', x === b ? 'true' : 'false'); });
@@ -2766,9 +2731,16 @@
       .then(function (cfg) {
         var v = cfg.values || {};
         var preserve = cfg.preserve;
+        var showLive = readLS('bird:liveaudio', 'off') === 'on';
         adminBody.innerHTML =
           '<div class="admin-settings">'
           + themeRow()
+          + '<div class="menu-row"><div><span class="label">Live geluid tonen</span><span class="hint">microfoon-stream in het menu</span></div>'
+          +   '<button type="button" class="switch" role="switch" aria-checked="' + (showLive ? 'true' : 'false') + '" data-instant="liveaudio"></button></div>'
+          + '<div class="menu-row"><div><span class="label">Scherm-collage toont</span><span class="hint">wat het kleine scherm laat zien</span></div>'
+          +   '<div class="seg" data-instant-seg="smalltvwindow">'
+          +     ['8h:8 uur', '24h:24 uur', '7d:7 dagen', 'location:deze plek'].map(function (o) { var p = o.split(':'); return '<button type="button" data-v="' + p[0] + '">' + p[1] + '</button>'; }).join('')
+          +   '</div></div>'
           + settingsToggle('preserve', 'Alle opnames bewaren', 'niet automatisch verwijderen', preserve)
           + settingsSlider('CONFIDENCE',  'Betrouwbaarheidsdrempel', 'min. score om een waarneming te loggen', v.CONFIDENCE,  0.1, 0.95, 0.05, 2)
           + settingsSlider('SENSITIVITY', 'Gevoeligheid',            'gevoeligheid van de analyser',           v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
@@ -2784,6 +2756,25 @@
           + '</div>';
         wireSettingsControls(adminBody);
         adminBody.querySelectorAll('.seg').forEach(wireToggleAdvance);   // open-space advance
+        // Instant device/screen controls (NOT part of the Pi config save flow).
+        var liveSw = adminBody.querySelector('.switch[data-instant="liveaudio"]');
+        if (liveSw) liveSw.addEventListener('click', function () {
+          var on = liveSw.getAttribute('aria-checked') !== 'true';
+          liveSw.setAttribute('aria-checked', on ? 'true' : 'false');
+          writeLS('bird:liveaudio', on ? 'on' : 'off');
+          var w = document.getElementById('liveWrap'); if (w) w.hidden = !on;
+        });
+        var tvSeg = adminBody.querySelector('.seg[data-instant-seg="smalltvwindow"]');
+        if (tvSeg) {
+          var markTv = function (wv) { tvSeg.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-current', b.dataset.v === wv ? 'true' : 'false'); }); };
+          fetch('./avian/api/smalltv-config.php', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) { if (j && j.window) markTv(j.window); }).catch(function () {});
+          tvSeg.querySelectorAll('button').forEach(function (b) {
+            b.addEventListener('click', function () {
+              markTv(b.dataset.v);
+              fetch('./avian/api/smalltv-config.php', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ window: b.dataset.v }) });
+            });
+          });
+        }
         // Theme switcher applies + persists immediately (separate from the
         // Pi config save below).
         var themeSeg = adminBody.querySelector('[data-theme-seg]');
