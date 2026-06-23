@@ -2527,15 +2527,10 @@
     if (b) b.addEventListener('click', promptMapUnlock);
   }
   function promptMapUnlock() {
-    var p = window.prompt('Wachtwoord om de locaties te tonen:');
-    if (p == null) return;
-    var hdr = 'Basic ' + btoa((window.AV_AUTH_USER || 'birdnet') + ':' + p);
-    fetch('./avian/api/birdnet-api.php?action=locations', { cache: 'no-store', headers: { 'Authorization': hdr } })
-      .then(function (r) {
-        if (r.status === 200) { setAuth(hdr); renderMap(); }
-        else if (r.status === 401) { showMapLocked('Onjuist wachtwoord.'); }
-        else { showMapLocked('Niet beschikbaar.'); }
-      }).catch(function () { showMapLocked('Netwerkfout.'); });
+    // Reuse the menu's lock screen (the same clean password field) instead of a
+    // raw browser prompt. Unlocking it sets the shared credential and re-renders
+    // the map (the menu unlock handler calls renderMap when on the map view).
+    if (typeof openDd === 'function') openDd();
   }
   function renderMap() {
     if (!lmap || !mapLayer) return;
