@@ -129,7 +129,7 @@
   // session so pins stay visible without re-asking. Sent explicitly because a
   // fetch's manually-set Authorization header isn't auto-reused by the browser.
   var AV_AUTH = '';
-  try { AV_AUTH = sessionStorage.getItem('bird:auth') || ''; } catch (e) {}
+  try { AV_AUTH = localStorage.getItem('bird:auth') || ''; } catch (e) {}   // persists -> stay logged in
   function authHeaders(extra) {
     var h = extra || {};
     if (AV_AUTH) h['Authorization'] = AV_AUTH;
@@ -137,7 +137,7 @@
   }
   function setAuth(hdr) {
     AV_AUTH = hdr || '';
-    try { hdr ? sessionStorage.setItem('bird:auth', hdr) : sessionStorage.removeItem('bird:auth'); } catch (e) {}
+    try { hdr ? localStorage.setItem('bird:auth', hdr) : localStorage.removeItem('bird:auth'); } catch (e) {}
   }
 
   // ---- Single-audio coordinator ----
@@ -1600,7 +1600,10 @@
   // request reaches PHP - so a 200 here means we're authed, a 401
   // means Caddy rejected and we need the lock-screen flow.
   function tryAutoUnlock() {
-    fetch('./avian/api/menu.php', { credentials: 'same-origin' }).then(function (r) {
+    // Send the saved credential so a returning (already-unlocked) visitor goes
+    // straight in - no lock screen, no browser prompt. Empty header -> 401 ->
+    // the in-app lock screen handles it (fetch never triggers the native popup).
+    fetch('./avian/api/menu.php', { credentials: 'same-origin', headers: authHeaders() }).then(function (r) {
       if (r.status === 200) {
         return r.json().then(function (j) { renderMenu(j.items || []); });
       }
