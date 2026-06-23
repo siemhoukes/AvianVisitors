@@ -59,6 +59,14 @@ http:// ${BIRDNETPI_URL} {
   basicauth /terminal* {
     birdnet ${HASHWORD}
   }
+  # AvianVisitors: gate the whole menu/settings drawer. menu.php returns the
+  # drawer contents, so 401ing it (no creds) keeps the lock screen up until the
+  # password is entered - there's no way to render the menu (settings, live
+  # audio, tools) without it. This is what the frontend's lock-screen flow
+  # expects on a password-protected deploy.
+  basicauth /avian/api/menu.php* {
+    birdnet ${HASHWORD}
+  }
   # AvianVisitors: the kaart/map reveals where you are + your travel stops, so
   # gate its data (locations/mapconfig/journey actions on birdnet-api.php). The
   # collage/atlas/stats (recent/species/stats actions) stay open for the family.
