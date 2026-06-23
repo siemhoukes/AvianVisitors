@@ -21,10 +21,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 $DB_PATH = dirname(__DIR__, 2) . '/scripts/birds.db';
 
 // When the moved stop IS the current location - the coords birdnet.conf stamps
-// on every NEW detection - relocate "where I am now" too: rewrite the conf, pin
-// it manual (AUTO_LOCATION=false, so the boot IP-locator can't override the
-// correction), and reload the analyzer. Without this, only old rows move and
-// new detections keep landing at the old (often wrong, IP-derived) spot.
+// on every NEW detection - relocate "where I am now" too: rewrite the active
+// LATITUDE/LONGITUDE and reload the analyzer, so new detections land at the
+// corrected spot. Auto-location stays ON; we leave the LAST_AUTO_* baseline
+// untouched, so the correction survives reboots until the Pi physically moves
+// far enough for a new IP fix to land here (see auto_location.sh). Without this,
+// only old rows move and new detections keep landing at the old IP-derived spot.
 // Past stops (coords that don't match the current location) are just re-stamped.
 function relocate_current_if_match(float $olat, float $olon, float $nlat, float $nlon): bool {
     $conf = '/etc/birdnet/birdnet.conf';
@@ -37,13 +39,12 @@ function relocate_current_if_match(float $olat, float $olon, float $nlat, float 
     }
     $clat = number_format($nlat, 4, '.', '');
     $clon = number_format($nlon, 4, '.', '');
+    // Move only the active location. We deliberately DON'T touch AUTO_LOCATION
+    // or the LAST_AUTO_* baseline: auto-location stays on, and because the
+    // baseline is unchanged this correction sticks until the Pi physically
+    // moves far enough for a new IP fix to land here (see auto_location.sh).
     $s = preg_replace('/^LATITUDE=.*$/m', 'LATITUDE=' . $clat, $s, 1);
     $s = preg_replace('/^LONGITUDE=.*$/m', 'LONGITUDE=' . $clon, $s, 1);
-    if (preg_match('/^AUTO_LOCATION=/m', $s)) {
-        $s = preg_replace('/^AUTO_LOCATION=.*$/m', 'AUTO_LOCATION=false', $s, 1);
-    } else {
-        $s = rtrim($s, "\n") . "\nAUTO_LOCATION=false\n";
-    }
     // The conf is owned by the install user (the web user is "other" = read
     // only), so stage it in /tmp and copy into place with the web user's
     // passwordless sudo - this follows the symlink and keeps owner/perms, the
