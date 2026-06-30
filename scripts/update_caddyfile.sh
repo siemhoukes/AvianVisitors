@@ -45,7 +45,7 @@ http:// ${BIRDNETPI_URL} {
   file_server browse
   # AvianVisitors: basicauth signals a failed login by returning a 401 handler
   # *error*, which Caddy renders in its error path - a normal-chain
-  # `header -WWW-Authenticate` never wraps that write, so the challenge header
+  # the normal-chain header directive never wraps that write, so the challenge
   # survives and the browser shows its native login popup. Strip it here, inside
   # handle_errors, where the 401 is actually written. No WWW-Authenticate => no
   # native popup; the in-app drawer stays the only login.
@@ -141,7 +141,7 @@ http:// ${BIRDNETPI_URL} {
   file_server browse
   # AvianVisitors: basicauth signals a failed login by returning a 401 handler
   # *error*, which Caddy renders in its error path - a normal-chain
-  # `header -WWW-Authenticate` never wraps that write, so the challenge header
+  # the normal-chain header directive never wraps that write, so the challenge
   # survives and the browser shows its native login popup. Strip it here, inside
   # handle_errors, where the 401 is actually written. No WWW-Authenticate => no
   # native popup; the in-app drawer stays the only login.
