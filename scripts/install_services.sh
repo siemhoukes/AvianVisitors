@@ -197,7 +197,7 @@ http:// ${BIRDNETPI_URL} {
   # Strip it inside handle_errors, where the 401 is actually written.
   handle_errors 401 {
     header -WWW-Authenticate
-    respond 401
+    respond "Niet gevonden." 401
   }
   handle /By_Date/* {
     file_server browse
@@ -248,7 +248,7 @@ http:// ${BIRDNETPI_URL} {
   # Strip it inside handle_errors, where the 401 is actually written.
   handle_errors 401 {
     header -WWW-Authenticate
-    respond 401
+    respond "Niet gevonden." 401
   }
   handle /By_Date/* {
     file_server browse

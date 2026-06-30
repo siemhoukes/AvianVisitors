@@ -51,7 +51,10 @@ http:// ${BIRDNETPI_URL} {
   # native popup; the in-app drawer stays the only login.
   handle_errors 401 {
     header -WWW-Authenticate
-    respond 401
+    # Status stays 401 (the frontend's drawer/probe logic keys off it); the body
+    # is what a direct browser navigation to a gated page (e.g. /log) shows -
+    # a plain "not found", never the native login popup.
+    respond "Niet gevonden." 401
   }
   # Always revalidate the app shell so UI changes appear without a manual cache
   # clear (304 when unchanged, fresh bytes when changed).
@@ -88,6 +91,17 @@ ${AUTH_BOTH}
 ${AUTH_BOTH}
   }
   basicauth /terminal* {
+${AUTH_BOTH}
+  }
+  # AvianVisitors: the raw log viewer (gotty on /log) plus the admin diag /
+  # service-restart / logs API expose system internals and let you restart
+  # services, so gate them. birdnet-status.php previously only checked that an
+  # Authorization header was *present* (any value passed); real basicauth here
+  # validates the password - the admin drawer already sends it via fetch.
+  basicauth /log* {
+${AUTH_BOTH}
+  }
+  basicauth /avian/api/birdnet-status.php* {
 ${AUTH_BOTH}
   }
   # AvianVisitors: gate the whole menu/settings drawer. menu.php returns the
@@ -147,7 +161,10 @@ http:// ${BIRDNETPI_URL} {
   # native popup; the in-app drawer stays the only login.
   handle_errors 401 {
     header -WWW-Authenticate
-    respond 401
+    # Status stays 401 (the frontend's drawer/probe logic keys off it); the body
+    # is what a direct browser navigation to a gated page (e.g. /log) shows -
+    # a plain "not found", never the native login popup.
+    respond "Niet gevonden." 401
   }
   # Always revalidate the app shell so UI changes appear without a manual cache
   # clear (304 when unchanged, fresh bytes when changed).
