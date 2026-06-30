@@ -38,7 +38,9 @@ $action = $_GET['action'] ?? 'diag';
 $BIRDNETPI_DIR = dirname(__DIR__, 2);
 $BIRDSONGS_DIR = dirname(__DIR__, 3) . '/BirdSongs';
 $DB_PATH       = "$BIRDNETPI_DIR/scripts/birds.db";
-$CONF_PATH     = "$BIRDNETPI_DIR/birdnet.conf";
+$LOCAL_CONF_PATH = "$BIRDNETPI_DIR/birdnet.conf";
+$SYSTEM_CONF_PATH = '/etc/birdnet/birdnet.conf';
+$CONF_PATH = is_readable($SYSTEM_CONF_PATH) ? $SYSTEM_CONF_PATH : $LOCAL_CONF_PATH;
 $STREAM_DIR    = "$BIRDSONGS_DIR/StreamData";
 
 function shellout(string $cmd): string {

@@ -28,7 +28,9 @@ if (getenv('AV_REQUIRE_AUTH') === '1' && empty($_SERVER['HTTP_AUTHORIZATION'])) 
 
 // Path layout: /home/{USER}/BirdNET-Pi/avian/api/config.php
 $BIRDNETPI_DIR = dirname(__DIR__, 2);
-$CONF_PATH     = "$BIRDNETPI_DIR/birdnet.conf";
+$LOCAL_CONF_PATH = "$BIRDNETPI_DIR/birdnet.conf";
+$SYSTEM_CONF_PATH = '/etc/birdnet/birdnet.conf';
+$CONF_PATH = is_readable($SYSTEM_CONF_PATH) ? $SYSTEM_CONF_PATH : $LOCAL_CONF_PATH;
 
 // Whitelist: { config_key => { type, min?, max?, restart?, restart_services? } }
 $ALLOWED = [
@@ -62,7 +64,6 @@ function read_conf(string $path): array {
 }
 
 function write_conf(string $path, array $updates): bool {
-    if (!is_writable($path) && !is_writable(dirname($path))) return false;
     $lines = is_readable($path) ? file($path, FILE_IGNORE_NEW_LINES) : [];
     $seen = [];
     foreach ($lines as $i => $line) {
@@ -77,9 +78,26 @@ function write_conf(string $path, array $updates): bool {
     foreach ($updates as $k => $v) {
         if (empty($seen[$k])) $lines[] = $k . '=' . quote_val($v);
     }
+    $contents = implode("\n", $lines) . "\n";
+    if (is_writable($path) || (!file_exists($path) && is_writable(dirname($path)))) {
+        return write_conf_direct($path, $contents);
+    }
+    return write_conf_via_sudo($path, $contents);
+}
+
+function write_conf_direct(string $path, string $contents): bool {
     $tmp = $path . '.tmp.' . getmypid();
-    if (file_put_contents($tmp, implode("\n", $lines) . "\n") === false) return false;
+    if (file_put_contents($tmp, $contents) === false) return false;
     return rename($tmp, $path);
+}
+
+function write_conf_via_sudo(string $path, string $contents): bool {
+    $tmp = '/tmp/avian_config_' . getmypid();
+    if (file_put_contents($tmp, $contents) === false) return false;
+    $rc = 1; $out = [];
+    exec('sudo /bin/cp ' . escapeshellarg($tmp) . ' ' . escapeshellarg($path) . ' 2>&1', $out, $rc);
+    @unlink($tmp);
+    return $rc === 0;
 }
 
 function quote_val($v): string {

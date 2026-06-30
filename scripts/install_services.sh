@@ -392,6 +392,8 @@ caddy ALL=(root) NOPASSWD: \\
     /bin/systemctl restart livestream, \\
     /bin/systemctl restart icecast2, \\
     /bin/systemctl restart caddy, \\
+    /bin/cp /tmp/avian_config_* /etc/birdnet/birdnet.conf, \\
+    /bin/cp /tmp/avian_sched_* /etc/birdnet/birdnet.conf, \\
     /bin/journalctl -u birdnet_recording *, \\
     /bin/journalctl -u birdnet_analysis *, \\
     /bin/journalctl -u birdnet_log *, \\
