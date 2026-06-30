@@ -421,8 +421,8 @@ install_livestream_service() {
   cat << EOF > $HOME/BirdNET-Pi/templates/livestream.service
 [Unit]
 Description=BirdNET-Pi Live Stream
-After=network-online.target
-Requires=network-online.target
+After=network-online.target icecast2.service
+Wants=network-online.target icecast2.service
 [Service]
 Restart=always
 Type=simple

@@ -46,7 +46,12 @@ if [ -n "${RTSP_STREAM}" ];then
   done
   wait
 else
-  if ! pulseaudio --check;then pulseaudio --start;fi
+  # On some Pi OS/PulseAudio combinations `pulseaudio --check` can hang under
+  # systemd, which blocks the recorder before it reaches arecord. Bound it so
+  # ALSA capture still starts even if PulseAudio is unhealthy.
+  if command -v pulseaudio >/dev/null 2>&1; then
+    timeout 3 pulseaudio --check >/dev/null 2>&1 || timeout 5 pulseaudio --start >/dev/null 2>&1 || true
+  fi
   if pgrep arecord &> /dev/null ;then
     echo "Recording"
   else
