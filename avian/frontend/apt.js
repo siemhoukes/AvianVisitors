@@ -1856,7 +1856,7 @@
           setStatus('bufferen...');
           liveAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
           fetch('./avian/api/live-stream.php?t=' + Date.now(), {
-            headers: authHeaders(), cache: 'no-store',
+            headers: authHeaders({ 'X-Avian-Auth': AV_AUTH || '' }), cache: 'no-store',
             signal: liveAbort ? liveAbort.signal : undefined
           }).then(function (resp) {
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
