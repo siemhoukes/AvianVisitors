@@ -191,7 +191,14 @@ install_Caddyfile() {
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   file_server browse
-  header -WWW-Authenticate
+  # basicauth fails with a 401 handler *error* rendered in Caddy's error path,
+  # which a normal-chain `header -WWW-Authenticate` never wraps - so the
+  # challenge header survives and the browser pops its native login dialog.
+  # Strip it inside handle_errors, where the 401 is actually written.
+  handle_errors 401 {
+    header -WWW-Authenticate
+    respond 401
+  }
   handle /By_Date/* {
     file_server browse
   }
@@ -235,7 +242,14 @@ EOF
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   file_server browse
-  header -WWW-Authenticate
+  # basicauth fails with a 401 handler *error* rendered in Caddy's error path,
+  # which a normal-chain `header -WWW-Authenticate` never wraps - so the
+  # challenge header survives and the browser pops its native login dialog.
+  # Strip it inside handle_errors, where the 401 is actually written.
+  handle_errors 401 {
+    header -WWW-Authenticate
+    respond 401
+  }
   handle /By_Date/* {
     file_server browse
   }

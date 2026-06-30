@@ -43,7 +43,16 @@ cat << EOF > /etc/caddy/Caddyfile
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   file_server browse
-  header -WWW-Authenticate
+  # AvianVisitors: basicauth signals a failed login by returning a 401 handler
+  # *error*, which Caddy renders in its error path - a normal-chain
+  # `header -WWW-Authenticate` never wraps that write, so the challenge header
+  # survives and the browser shows its native login popup. Strip it here, inside
+  # handle_errors, where the 401 is actually written. No WWW-Authenticate => no
+  # native popup; the in-app drawer stays the only login.
+  handle_errors 401 {
+    header -WWW-Authenticate
+    respond 401
+  }
   # Always revalidate the app shell so UI changes appear without a manual cache
   # clear (304 when unchanged, fresh bytes when changed).
   @appshell path / /index.html /apt.js /styles.css /dims.json /masks.json
@@ -130,7 +139,16 @@ else
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   file_server browse
-  header -WWW-Authenticate
+  # AvianVisitors: basicauth signals a failed login by returning a 401 handler
+  # *error*, which Caddy renders in its error path - a normal-chain
+  # `header -WWW-Authenticate` never wraps that write, so the challenge header
+  # survives and the browser shows its native login popup. Strip it here, inside
+  # handle_errors, where the 401 is actually written. No WWW-Authenticate => no
+  # native popup; the in-app drawer stays the only login.
+  handle_errors 401 {
+    header -WWW-Authenticate
+    respond 401
+  }
   # Always revalidate the app shell so UI changes appear without a manual cache
   # clear (304 when unchanged, fresh bytes when changed).
   @appshell path / /index.html /apt.js /styles.css /dims.json /masks.json
