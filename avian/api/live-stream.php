@@ -28,6 +28,11 @@ function live_auth_header(): string {
 }
 
 function live_authorized(array $conf): bool {
+    if (isset($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW'])) {
+        return $_SERVER['PHP_AUTH_USER'] === 'pensionado'
+            && isset($conf['LIVE_PWD'])
+            && hash_equals((string)$conf['LIVE_PWD'], (string)$_SERVER['PHP_AUTH_PW']);
+    }
     $hdr = live_auth_header();
     if (!preg_match('/^Basic\s+(.+)$/i', $hdr, $m)) return false;
     $raw = base64_decode($m[1], true);
