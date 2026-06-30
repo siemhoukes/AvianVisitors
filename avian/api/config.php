@@ -79,7 +79,7 @@ function write_conf(string $path, array $updates): bool {
         if (empty($seen[$k])) $lines[] = $k . '=' . quote_val($v);
     }
     $contents = implode("\n", $lines) . "\n";
-    if (is_writable($path) || (!file_exists($path) && is_writable(dirname($path)))) {
+    if (is_writable(dirname($path)) && (is_writable($path) || !file_exists($path))) {
         return write_conf_direct($path, $contents);
     }
     return write_conf_via_sudo($path, $contents);
