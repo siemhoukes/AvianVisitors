@@ -23,6 +23,14 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
+// PHP-FPM defaults to UTC; align "now" with the SYSTEM local timezone so the
+// active-entry comparison matches both what the user picks in the browser
+// (local wall-clock from the datetime-local field) and the cron apply-script
+// (apply_location_schedule.sh uses system local `date`). Without this the
+// schedule would activate hours early/late.
+$av_tz = @trim((string)@file_get_contents('/etc/timezone'));
+if ($av_tz !== '') @date_default_timezone_set($av_tz);
+
 $DB_PATH = dirname(__DIR__, 2) . '/scripts/birds.db';
 $CONF    = '/etc/birdnet/birdnet.conf';
 $TS_RE   = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/';   // datetime-local format
