@@ -55,6 +55,79 @@ function one(SQLite3 $db, string $sql, array $bind = []) {
     return $r[0] ?? null;
 }
 
+function sched_sql_ts(string $ts): string {
+    $out = str_replace('T', ' ', substr($ts, 0, 16));
+    return strlen($out) === 16 ? $out . ':00' : $out;
+}
+
+function schedule_rows_read(SQLite3 $db): array {
+    $has = one($db, "SELECT name FROM sqlite_master WHERE type='table' AND name='av_location_schedule'");
+    if (!$has) return [];
+    $rs = rows($db, 'SELECT id, from_ts, lat, lon, label FROM av_location_schedule ORDER BY from_ts ASC, id ASC');
+    $out = [];
+    foreach ($rs as $r) {
+        $out[] = ['id' => (int)$r['id'], 'from_ts' => (string)$r['from_ts'],
+                  'lat' => (float)$r['lat'], 'lon' => (float)$r['lon'],
+                  'label' => (string)($r['label'] ?? '')];
+    }
+    return $out;
+}
+
+function detections_between(SQLite3 $db, string $from, ?string $to): array {
+    $where = "WHERE datetime(Date || ' ' || Time) >= datetime(:from)";
+    $bind = [':from' => sched_sql_ts($from)];
+    if ($to !== null && $to !== '') {
+        $where .= " AND datetime(Date || ' ' || Time) < datetime(:to)";
+        $bind[':to'] = sched_sql_ts($to);
+    }
+    $rs = rows($db,
+      "SELECT Sci_Name AS sci, Com_Name AS com, COUNT(*) AS n, MAX(Confidence) AS best_conf, "
+    . "       MIN(Date||' '||Time) AS first_seen, MAX(Date||' '||Time) AS last_seen "
+    . "FROM detections " . $where . " "
+    . "GROUP BY Sci_Name ORDER BY n DESC, last_seen DESC",
+      $bind
+    );
+    $out = [];
+    foreach ($rs as $r) {
+        $out[] = ['sci' => (string)$r['sci'], 'com' => (string)($r['com'] ?? ''),
+                  'n' => (int)$r['n'],
+                  'best_conf' => isset($r['best_conf']) ? (float)$r['best_conf'] : null,
+                  'first_seen' => (string)$r['first_seen'], 'last_seen' => (string)$r['last_seen']];
+    }
+    return $out;
+}
+
+function schedule_locations(SQLite3 $db): array {
+    $rows = schedule_rows_read($db);
+    $n = count($rows);
+    for ($i = 0; $i < $n; $i++) {
+        $until = ($i + 1 < $n) ? $rows[$i + 1]['from_ts'] : null;
+        $species = detections_between($db, $rows[$i]['from_ts'], $until);
+        $total = 0; $first = null; $last = null;
+        foreach ($species as $s) {
+            $total += (int)$s['n'];
+            if ($first === null || $s['first_seen'] < $first) $first = $s['first_seen'];
+            if ($last === null || $s['last_seen'] > $last) $last = $s['last_seen'];
+        }
+        $rows[$i]['until_ts'] = $until;
+        $rows[$i]['species'] = $species;
+        $rows[$i]['n'] = $total;
+        $rows[$i]['first_seen'] = $first;
+        $rows[$i]['last_seen'] = $last;
+    }
+    return $rows;
+}
+
+function schedule_for_detection(array $schedule, string $seenAt): ?array {
+    $ts = str_replace(' ', 'T', substr($seenAt, 0, 16));
+    $active = null;
+    foreach ($schedule as $row) {
+        if ($row['from_ts'] <= $ts) $active = $row;
+        else break;
+    }
+    return $active;
+}
+
 $action = $_GET['action'] ?? 'stats';
 
 switch ($action) {
@@ -202,45 +275,32 @@ switch ($action) {
     }
 
     case 'locations': {
-        // One entry per stop (group by stored lat/lon) with the birds heard
-        // there - powers the Reisjournaal map pins + their detail panel.
-        $rs = rows($db,
-          "SELECT Lat AS lat, Lon AS lon, Sci_Name AS sci, Com_Name AS com, COUNT(*) AS n, "
-        . "       MIN(Date||' '||Time) AS first_seen, MAX(Date||' '||Time) AS last_seen "
-        . "FROM detections WHERE Lat IS NOT NULL AND Lat <> 0 "
-        . "GROUP BY Lat, Lon, Sci_Name ORDER BY Lat, Lon, n DESC"
-        );
-        $locs = []; $order = [];
-        foreach ($rs as $r) {
-            $key = $r['lat'] . ',' . $r['lon'];
-            if (!isset($locs[$key])) {
-                $locs[$key] = ['lat' => (float)$r['lat'], 'lon' => (float)$r['lon'], 'n' => 0,
-                               'species' => [], 'first_seen' => $r['first_seen'], 'last_seen' => $r['last_seen']];
-                $order[] = $key;
-            }
-            $locs[$key]['species'][] = ['sci' => $r['sci'], 'com' => $r['com'], 'n' => (int)$r['n'],
-                                        'first_seen' => $r['first_seen'], 'last_seen' => $r['last_seen']];
-            $locs[$key]['n'] += (int)$r['n'];
-            if ($r['first_seen'] < $locs[$key]['first_seen']) $locs[$key]['first_seen'] = $r['first_seen'];
-            if ($r['last_seen'] > $locs[$key]['last_seen']) $locs[$key]['last_seen'] = $r['last_seen'];
-        }
-        $out = [];
-        foreach ($order as $k) $out[] = $locs[$k];
-        echo json_encode(['locations' => $out, 'as_of' => date('c')]);
+        // Compatibility endpoint: locations are now the reisschema stops.
+        // Birds attach to a stop by detection time, not by the old raw Lat/Lon
+        // clusters, so there is only one binding location system.
+        echo json_encode(['locations' => schedule_locations($db), 'as_of' => date('c')]);
         break;
     }
 
     case 'journey': {
-        // First-heard location per species, for the Reisjournaal route map.
-        // SQLite carries the MIN row's bare columns, so Lat/Lon come from the
-        // earliest detection. Skips rows with no/zero location.
+        // First-heard location per species, attached to the matching
+        // reisschema window instead of the old stored detection coordinates.
+        $schedule = schedule_rows_read($db);
         $rs = rows($db,
-          "SELECT Sci_Name AS sci, Com_Name AS com, Lat AS lat, Lon AS lon, "
-        . "       MIN(Date||' '||Time) AS first_seen, COUNT(*) AS n "
-        . "FROM detections WHERE Lat IS NOT NULL AND Lat <> 0 "
+          "SELECT Sci_Name AS sci, Com_Name AS com, MIN(Date||' '||Time) AS first_seen, COUNT(*) AS n "
+        . "FROM detections "
         . "GROUP BY Sci_Name ORDER BY first_seen ASC"
         );
-        echo json_encode(['species' => $rs, 'as_of' => date('c')]);
+        $out = [];
+        foreach ($rs as $r) {
+            $stop = schedule_for_detection($schedule, (string)$r['first_seen']);
+            if ($stop === null) continue;
+            $out[] = ['sci' => (string)$r['sci'], 'com' => (string)($r['com'] ?? ''),
+                      'lat' => $stop['lat'], 'lon' => $stop['lon'],
+                      'label' => $stop['label'], 'from_ts' => $stop['from_ts'],
+                      'first_seen' => (string)$r['first_seen'], 'n' => (int)$r['n']];
+        }
+        echo json_encode(['species' => $out, 'as_of' => date('c')]);
         break;
     }
 

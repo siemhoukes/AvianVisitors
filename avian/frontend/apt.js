@@ -2613,13 +2613,27 @@
       html: '<div class="loc-pin"><span>' + (n > 99 ? '99+' : n) + '</span></div>' });
   }
   function mapDay(s) { return (s || '').split(' ')[0]; }
+  function locPeriod(loc) {
+    if (loc.from_ts) {
+      var from = fmtSchedTs(loc.from_ts);
+      var until = loc.until_ts ? fmtSchedTs(loc.until_ts) : '';
+      return until ? (from + ' tot ' + until) : ('vanaf ' + from);
+    }
+    var d1 = mapDay(loc.first_seen), d2 = mapDay(loc.last_seen);
+    return d1 === d2 ? d1 : d1 + ' - ' + d2;
+  }
   function openLocPanel(loc) {
     if (!locPanel) return;
-    var nSp = loc.species.length;
+    var species = loc.species || [];
+    var nSp = species.length;
     locTitleEl.textContent = nSp + ' soort' + (nSp === 1 ? '' : 'en') + ' hier';
-    var d1 = mapDay(loc.first_seen), d2 = mapDay(loc.last_seen);
-    locSubEl.textContent = (d1 === d2 ? d1 : d1 + ' – ' + d2) + ' · ' + loc.n + ' waarnemingen';
-    locListEl.innerHTML = loc.species.slice().sort(function (a, b) { return b.n - a.n; }).map(function (s) {
+    locSubEl.textContent = (loc.label ? loc.label + ' - ' : '') + locPeriod(loc) + ' - ' + (loc.n || 0) + ' waarnemingen';
+    if (!species.length) {
+      locListEl.innerHTML = '<li class="rec-empty">Nog geen vogels op deze plek.</li>';
+      locPanel.setAttribute('aria-hidden', 'false');
+      return;
+    }
+    locListEl.innerHTML = species.slice().sort(function (a, b) { return b.n - a.n; }).map(function (s) {
       var img = './avian/api/cutout.php?sci=' + encodeURIComponent(s.sci) + '&v=' + SKETCH_VERSION;
       return '<li data-sci="' + s.sci.replace(/"/g, '&quot;') + '">'
         + '<img src="' + img + '" alt="" onerror="this.remove()">'
@@ -2655,23 +2669,22 @@
   function renderMap() {
     if (!lmap || !mapLayer) return;
     if (!AV_AUTH) { showMapLocked(); return; }       // need the password first
-    fetch('./avian/api/birdnet-api.php?action=locations', { cache: 'no-store', headers: authHeaders() })
+    fetch('./avian/api/location-schedule.php', { cache: 'no-store', headers: authHeaders() })
       .then(function (r) {
         if (r.status === 401) { setAuth(''); showMapLocked('Onjuist wachtwoord.'); return null; }
         return r.ok ? r.json() : null;
       })
       .then(function (j) {
         if (!j) return;
-        var locs = (j.locations || []).filter(function (l) { return l.lat && l.lon; });
+        var locs = (j.schedule || []).filter(function (l) { return l.lat && l.lon; });
         mapLayer.clearLayers();
         if (mapEmptyEl) { mapEmptyEl.innerHTML = EMPTY_TXT; mapEmptyEl.hidden = locs.length > 0; }
         if (!locs.length) return;
         var pts = [];
         locs.forEach(function (loc) {
           var ll = [+loc.lat, +loc.lon]; pts.push(ll);
-          var m = L.marker(ll, { icon: pinIcon(loc.species.length), draggable: true }).addTo(mapLayer);
+          var m = L.marker(ll, { icon: pinIcon((loc.species || []).length) }).addTo(mapLayer);
           m.on('click', function () { openLocPanel(loc); });
-          m.on('dragend', function (e) { editStop(loc, 'move', e.target.getLatLng()); });  // drag-to-fix
         });
         if (pts.length > 1) {
           L.polyline(pts, { color: '#4a3f31', weight: 2, opacity: 0.5, dashArray: '4 6' }).addTo(mapLayer);
@@ -2759,9 +2772,10 @@
           var isActive = active && e.id === active.id;
           var future = e.from_ts > schedNow;
           var tag = isActive ? 'nu hier' : (future ? 'gepland' : '');
+          var nSp = (e.species || []).length;
           return '<li class="' + (isActive ? 'active' : '') + '" data-id="' + e.id + '">'
             + '<div class="st-main"><b>' + escAttr(e.label || '(naamloos)') + '</b><span>' + tag + '</span></div>'
-            + '<div class="st-sub">vanaf ' + fmtSchedTs(e.from_ts) + '</div>'
+            + '<div class="st-sub">vanaf ' + fmtSchedTs(e.from_ts) + ' - ' + nSp + ' soort' + (nSp === 1 ? '' : 'en') + ' hier</div>'
             + '<div class="st-actions"><button type="button" data-act="edit">wijzig</button>'
             + '<button type="button" data-act="del" class="danger">verwijder</button></div></li>';
         }).join('');
@@ -2836,6 +2850,10 @@
     else if (act === 'del') {
       fetch('./avian/api/location-schedule.php', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ op: 'delete', id: id }) })
         .then(function () { renderSchedule(); renderMap(); }).catch(function () {});
+    } else if (entry) {
+      closeSchedPanel();
+      if (lmap && entry.lat && entry.lon) lmap.setView([+entry.lat, +entry.lon], 9);
+      openLocPanel(entry);
     }
   });
   if (schedBtn) schedBtn.addEventListener('click', function (ev) { ev.stopPropagation(); openSchedPanel(); });
@@ -2895,11 +2913,11 @@
     closeLocPanel();
     if (typeof closeSchedPanel === 'function') closeSchedPanel();
     if (!AV_AUTH) { promptMapUnlock(); return; }
-    fetch('./avian/api/birdnet-api.php?action=locations', { cache: 'no-store', headers: authHeaders() })
+    fetch('./avian/api/location-schedule.php', { cache: 'no-store', headers: authHeaders() })
       .then(function (r) { if (r.status === 401) { setAuth(''); promptMapUnlock(); return null; } return r.ok ? r.json() : null; })
       .then(function (j) {
       if (!j) return;
-      stopsData = (j.locations || []).filter(function (l) { return l.lat && l.lon; });
+      stopsData = (j.schedule || []).filter(function (l) { return l.lat && l.lon; });
       stopsSubEl.textContent = stopsData.length + ' stop' + (stopsData.length === 1 ? '' : 's');
       stopsListEl.innerHTML = stopsData.map(function (loc, i) {
         var d1 = mapDay(loc.first_seen), d2 = mapDay(loc.last_seen);
@@ -2914,7 +2932,7 @@
       setMapBtns(false);
     }).catch(function () {});
   }
-  if (stopsPanel) {
+  if (stopsPanel && stopsBtn) {
     stopsBtn.addEventListener('click', function () {
       if (stopsPanel.getAttribute('aria-hidden') === 'false') closeStopsPanel(); else openStopsPanel();
     });
@@ -2935,8 +2953,9 @@
       }
     });
   }
-  // Ctrl/Cmd+Z undoes the last pin move while on the map view.
+  // Legacy pin-moving undo is disabled; reisschema owns location edits now.
   document.addEventListener('keydown', function (e) {
+    return;
     if (!(e.ctrlKey || e.metaKey) || (e.key !== 'z' && e.key !== 'Z') || e.shiftKey) return;
     if (currentView !== 3) return;
     var t = e.target;

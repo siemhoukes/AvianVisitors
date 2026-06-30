@@ -1664,7 +1664,7 @@ body.av-authed #dd-locked { display: none; }
   @media (max-width: 700px) { .view#v3 { padding: 8px 16px 88px; } }
   #tripMap { flex: 1; min-height: 0; border-radius: 12px; overflow: hidden; background: var(--paper-3); box-shadow: var(--edge); }
   .map-offline { padding: 24px; text-align: center; color: var(--ink-soft); font-size: 13px; }
-  /* "locaties" button - top-left over the map */
+  /* Reisschema button - top-left over the map */
   .map-stops-btn {
     position: absolute; top: 18px; left: 44px; z-index: 1000;
     padding: 7px 13px; border: none; border-radius: 20px;
@@ -1733,8 +1733,6 @@ body.av-authed #dd-locked { display: none; }
   .stops-list li.active { background: var(--paper-2); outline: 1px solid var(--accent); }
 
   /* ---- Reisschema (date-based location plan) ---- */
-  #schedBtn { left: auto; right: 18px; }
-  @media (max-width: 700px) { #schedBtn { left: auto; right: 16px; top: 14px; } }
   .sched-list .st-main span { font-size: 10px; color: var(--ink-soft); letter-spacing: 0.08em; text-transform: lowercase; }
   .sched-list li.active .st-main span { color: var(--accent); }
   .sched-empty, .sched-note { padding: 10px 8px; font-size: 12px; color: var(--ink-soft); list-style: none; }

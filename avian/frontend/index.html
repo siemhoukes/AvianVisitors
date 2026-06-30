@@ -134,10 +134,9 @@
     <!-- ========== View 4 - Reisjournaal (route map) ========== -->
     <section class="view" id="v3" aria-label="Reisjournaal">
       <div id="tripMap"></div>
-      <button type="button" class="map-stops-btn" id="stopsBtn">locaties</button>
       <button type="button" class="map-stops-btn" id="schedBtn">reisschema</button>
       <p class="map-hint" id="mapHint" hidden></p>
-      <p class="map-empty" id="mapEmpty" hidden>Nog geen vogels met locatie &mdash; de kaart vult zich onderweg.</p>
+      <p class="map-empty" id="mapEmpty" hidden>Nog geen plekken in het reisschema.</p>
       <!-- Per-pin bird list (opens when a pin is clicked) -->
       <aside class="loc-panel" id="locPanel" aria-hidden="true">
         <header class="loc-head">
@@ -148,17 +147,6 @@
           <button type="button" class="loc-close" id="locClose" aria-label="sluiten">&times;</button>
         </header>
         <ol class="loc-list" id="locList"></ol>
-      </aside>
-      <!-- All-stops menu (move / delete a stop) -->
-      <aside class="loc-panel stops-panel" id="stopsPanel" aria-hidden="true">
-        <header class="loc-head">
-          <div>
-            <h2>Locaties</h2>
-            <p class="loc-sub" id="stopsSub"></p>
-          </div>
-          <button type="button" class="loc-close" id="stopsClose" aria-label="sluiten">&times;</button>
-        </header>
-        <ol class="stops-list" id="stopsList"></ol>
       </aside>
       <!-- Reisschema: manual, date-based location plan. Each entry = "from this
            date we're at this place"; the active entry drives the bird algorithm

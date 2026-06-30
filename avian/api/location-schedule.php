@@ -7,7 +7,7 @@
 // where NEW detections are stamped. Replaces the IP geolocation (which is wrong
 // here because the caravan router is registered in another country).
 //
-//   GET  -> {"schedule":[{id,from_ts,lat,lon,label}...], "active":{...}|null, "now":"YYYY-MM-DDTHH:MM"}
+//   GET  -> {"schedule":[{id,from_ts,lat,lon,label,until_ts,n,species...}...], "active":{...}|null, "now":"YYYY-MM-DDTHH:MM"}
 //   POST {"op":"add",    from_ts,lat,lon,label}
 //   POST {"op":"update", id, from_ts,lat,lon,label}
 //   POST {"op":"delete", id}
@@ -63,6 +63,62 @@ function active_entry(array $rows, string $now): ?array {
     return $active;
 }
 
+function sql_ts(string $ts): string {
+    $out = str_replace('T', ' ', substr($ts, 0, 16));
+    return strlen($out) === 16 ? $out . ':00' : $out;
+}
+
+function detections_between(SQLite3 $db, string $from, ?string $to): array {
+    $where = "WHERE datetime(Date || ' ' || Time) >= datetime(:from)";
+    if ($to !== null && $to !== '') {
+        $where .= " AND datetime(Date || ' ' || Time) < datetime(:to)";
+    }
+    $sql =
+        "SELECT Sci_Name AS sci, Com_Name AS com, COUNT(*) AS n, MAX(Confidence) AS best_conf, "
+        . "MIN(Date||' '||Time) AS first_seen, MAX(Date||' '||Time) AS last_seen "
+        . "FROM detections " . $where . " "
+        . "GROUP BY Sci_Name ORDER BY n DESC, last_seen DESC";
+    $st = $db->prepare($sql);
+    $st->bindValue(':from', sql_ts($from), SQLITE3_TEXT);
+    if ($to !== null && $to !== '') $st->bindValue(':to', sql_ts($to), SQLITE3_TEXT);
+    $res = $st->execute();
+    $out = [];
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
+        $out[] = [
+            'sci' => (string)$r['sci'],
+            'com' => (string)($r['com'] ?? ''),
+            'n' => (int)$r['n'],
+            'best_conf' => isset($r['best_conf']) ? (float)$r['best_conf'] : null,
+            'first_seen' => (string)$r['first_seen'],
+            'last_seen' => (string)$r['last_seen'],
+        ];
+    }
+    return $out;
+}
+
+function schedule_with_birds(SQLite3 $db): array {
+    $rows = schedule_rows($db);
+    $n = count($rows);
+    for ($i = 0; $i < $n; $i++) {
+        $until = ($i + 1 < $n) ? $rows[$i + 1]['from_ts'] : null;
+        $species = detections_between($db, $rows[$i]['from_ts'], $until);
+        $total = 0;
+        $first = null;
+        $last = null;
+        foreach ($species as $s) {
+            $total += (int)$s['n'];
+            if ($first === null || $s['first_seen'] < $first) $first = $s['first_seen'];
+            if ($last === null || $s['last_seen'] > $last) $last = $s['last_seen'];
+        }
+        $rows[$i]['until_ts'] = $until;
+        $rows[$i]['species'] = $species;
+        $rows[$i]['n'] = $total;
+        $rows[$i]['first_seen'] = $first;
+        $rows[$i]['last_seen'] = $last;
+    }
+    return $rows;
+}
+
 // Push the active location into birdnet.conf + reload the analyzer, but only if
 // it actually changed. Mirrors location-edit.php's relocate (stage in /tmp, then
 // the web user's passwordless `sudo cp`, which preserves the symlink + owner).
@@ -91,7 +147,7 @@ function apply_active(?array $active, string $conf): bool {
 }
 
 function respond(SQLite3 $db, string $conf, bool $applied = false): void {
-    $rows = schedule_rows($db);
+    $rows = schedule_with_birds($db);
     $now = date('Y-m-d\TH:i');
     echo json_encode(['schedule' => $rows, 'active' => active_entry($rows, $now),
                       'now' => $now, 'applied' => $applied]);

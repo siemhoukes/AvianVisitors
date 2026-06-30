@@ -151,19 +151,8 @@ def species_payload(sci):
 
 
 def locations_payload():
-    """GATED — the caravan's whereabouts. Two stops with birds."""
-    return {"locations": [
-        {"lat": 42.2351, "lon": -8.7050, "n": 60,
-         "first_seen": "2026-06-23 08:00:00", "last_seen": "2026-06-29 19:15:00",
-         "species": [{"sci": s, "com": c, "n": n,
-                      "first_seen": "2026-06-23 08:00:00",
-                      "last_seen": "2026-06-29 19:15:00"} for s, c, n in SPECIES[:4]]},
-        {"lat": 43.3623, "lon": -8.4115, "n": 18,
-         "first_seen": "2026-06-20 07:30:00", "last_seen": "2026-06-22 18:00:00",
-         "species": [{"sci": s, "com": c, "n": n,
-                      "first_seen": "2026-06-20 07:30:00",
-                      "last_seen": "2026-06-22 18:00:00"} for s, c, n in SPECIES[4:]]},
-    ], "as_of": now_iso()}
+    """GATED: compatibility endpoint, now backed by the reisschema."""
+    return {"locations": schedule_state()["schedule"], "as_of": now_iso()}
 
 
 def config_payload():
@@ -186,7 +175,19 @@ _next_id = [4]
 
 def schedule_state():
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    sched = sorted(SCHEDULE, key=lambda e: (e["from_ts"], e["id"]))
+    sched = [dict(e) for e in sorted(SCHEDULE, key=lambda e: (e["from_ts"], e["id"]))]
+    for i, e in enumerate(sched):
+        e["until_ts"] = sched[i + 1]["from_ts"] if i + 1 < len(sched) else None
+        base = datetime.strptime(e["from_ts"], "%Y-%m-%dT%H:%M")
+        picked = SPECIES[i:i + 4] or SPECIES[:3]
+        e["species"] = [{
+            "sci": s, "com": c, "n": n,
+            "first_seen": (base + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
+            "last_seen": (base + timedelta(days=1, hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
+        } for s, c, n in picked]
+        e["n"] = sum(s["n"] for s in e["species"])
+        e["first_seen"] = e["species"][0]["first_seen"] if e["species"] else None
+        e["last_seen"] = e["species"][-1]["last_seen"] if e["species"] else None
     past = [e for e in sched if e["from_ts"] <= now]
     return {"schedule": sched, "active": (past[-1] if past else None), "now": now}
 
@@ -402,7 +403,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/avian/api/location-edit.php":
             if role == ROLE_ANON:
                 return self._401()
-            return self._json({"ok": True})
+            return self._json({"error": "location edits moved to reisschema",
+                               "use": "location-schedule.php"}, 410)
         if path == "/avian/api/location-schedule.php":
             if role == ROLE_ANON:
                 return self._401()

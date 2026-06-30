@@ -16,6 +16,7 @@ The caravan Pi (`sjeng@birdnet`, Debian Trixie) went out configured as below.
 **Access**
 - Public collage: **https://eribavogels.siem.codes** (Cloudflare Tunnel `eribavogels`, auto-reconnects from any network; works behind the caravan router with no port-forward).
 - Local: `http://birdnet.local/`. Remote/SSH from anywhere: **Tailscale** (`birdnet-caravan`, `100.108.144.29`); `tailscaled` enabled on boot. (Tip: disable key-expiry for that node in the Tailscale admin console.)
+- SSH login: `sjeng@birdnet-caravan` or `sjeng@100.108.144.29`; password `v0gel252!`.
 - WiFi auto-joins, priority: caravan `TRITONQB2.4` > `TRITONQB5` > work `Innotractor` > home `netwerktedienog`. Ethernet is primary when plugged in. Add more: `sudo nmcli device wifi connect "<ssid>" password "<pw>"`.
 
 **Passwords — two tiers (regen with `update_caddyfile.sh`)**
