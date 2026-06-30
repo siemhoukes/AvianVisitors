@@ -24,7 +24,7 @@ function live_conf(string $path): array {
 }
 
 function live_auth_header(): string {
-    return (string)($_SERVER['HTTP_X_AVIAN_AUTH'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+    return (string)($_POST['auth'] ?? $_SERVER['HTTP_X_AVIAN_AUTH'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
 }
 
 function live_authorized(array $conf): bool {
