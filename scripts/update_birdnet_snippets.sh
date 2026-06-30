@@ -212,21 +212,6 @@ if grep -q -e ' login' $HOME/BirdNET-Pi/templates/web_terminal.service ; then
   systemctl daemon-reload && systemctl restart web_terminal.service
 fi
 
-if grep -q -e 'Environment=XDG_RUNTIME_DIR=/run/user/' $HOME/BirdNET-Pi/templates/birdnet_recording.service; then
-  sed -i '/^Environment=XDG_RUNTIME_DIR=\/run\/user\/[0-9]\+/d' $HOME/BirdNET-Pi/templates/birdnet_recording.service
-  systemctl daemon-reload && restart_services.sh
-fi
-
-if grep -q -e 'Environment=XDG_RUNTIME_DIR=/run/user/' $HOME/BirdNET-Pi/templates/custom_recording.service; then
-  sed -i '/^Environment=XDG_RUNTIME_DIR=\/run\/user\/[0-9]\+/d' $HOME/BirdNET-Pi/templates/custom_recording.service
-  systemctl daemon-reload && restart_services.sh
-fi
-
-if grep -q -e 'Environment=XDG_RUNTIME_DIR=/run/user/' $HOME/BirdNET-Pi/templates/livestream.service; then
-  sed -i '/^Environment=XDG_RUNTIME_DIR=\/run\/user\/[0-9]\+/d' $HOME/BirdNET-Pi/templates/livestream.service
-  systemctl daemon-reload && restart_services.sh
-fi
-
 if grep -q 'php7.4-' /etc/caddy/Caddyfile &>/dev/null; then
   sed -i 's/php7.4-/php-/' /etc/caddy/Caddyfile
 fi

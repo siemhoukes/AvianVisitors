@@ -139,14 +139,18 @@ EOF
 
 install_recording_service() {
   echo "Installing birdnet_recording.service"
+  loginctl enable-linger ${USER} || true
   cat << EOF > $HOME/BirdNET-Pi/templates/birdnet_recording.service
 [Unit]
 Description=BirdNET Recording
+After=user@$(id -u ${USER}).service
+Wants=user@$(id -u ${USER}).service
 [Service]
 Restart=always
 Type=simple
 RestartSec=3
 User=${USER}
+Environment=XDG_RUNTIME_DIR=/run/user/$(id -u ${USER})
 ExecStart=/usr/local/bin/birdnet_recording.sh
 [Install]
 WantedBy=multi-user.target
@@ -157,14 +161,18 @@ EOF
 
 install_custom_recording_service() {
   echo "Installing custom_recording.service"
+  loginctl enable-linger ${USER} || true
   cat << EOF > $HOME/BirdNET-Pi/templates/custom_recording.service
 [Unit]
 Description=BirdNET Custom Recording
+After=user@$(id -u ${USER}).service
+Wants=user@$(id -u ${USER}).service
 [Service]
 Restart=always
 Type=simple
 RestartSec=3
 User=${USER}
+Environment=XDG_RUNTIME_DIR=/run/user/$(id -u ${USER})
 ExecStart=/usr/local/bin/custom_recording.sh
 [Install]
 WantedBy=multi-user.target
@@ -418,16 +426,18 @@ config_icecast() {
 }
 
 install_livestream_service() {
+  loginctl enable-linger ${USER} || true
   cat << EOF > $HOME/BirdNET-Pi/templates/livestream.service
 [Unit]
 Description=BirdNET-Pi Live Stream
-After=network-online.target icecast2.service
-Wants=network-online.target icecast2.service
+After=network-online.target icecast2.service user@$(id -u ${USER}).service
+Wants=network-online.target icecast2.service user@$(id -u ${USER}).service
 [Service]
 Restart=always
 Type=simple
 RestartSec=3
 User=${USER}
+Environment=XDG_RUNTIME_DIR=/run/user/$(id -u ${USER})
 ExecStart=/usr/local/bin/livestream.sh
 [Install]
 WantedBy=multi-user.target
