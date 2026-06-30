@@ -2020,6 +2020,7 @@
           + settingsSlider('CONFIDENCE',  'Betrouwbaarheidsdrempel', 'min. score om een waarneming te loggen', v.CONFIDENCE,  0.1, 0.95, 0.05, 2)
           + settingsSlider('SENSITIVITY', 'Gevoeligheid',            'gevoeligheid van de analyser',           v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
           + settingsSlider('OVERLAP',     'Overlap',                 'seconden geanalyseerd per ronde',        v.OVERLAP,     0,   2.5,  0.1,  1)
+          + settingsSlider('AUDIO_HIGHPASS_FREQ', 'Bromfilter',       'hoogdoorlaatfilter in Hz (0 = uit)',     v.AUDIO_HIGHPASS_FREQ, 0, 1000, 50, 0)
           + settingsSegmented('FULL_DISK', 'Bij volle schijf', '', v.FULL_DISK, [
               { v: 'keep',  label: 'behouden' },
               { v: 'purge', label: 'wissen' },
@@ -2051,6 +2052,10 @@
       + '</div>';
   }
   function settingsSlider(key, label, hint, val, min, max, step, digits) {
+    var n = Number(val);
+    if (!isFinite(n)) n = min;
+    var d = Number(digits);
+    if (!isFinite(d)) d = 2;
     return ''
       + '<div class="slider-row">'
       + '  <div class="head">'
@@ -2058,10 +2063,10 @@
       + '      <span class="label">' + label + '</span>'
       +       (hint ? '<span class="hint">' + hint + '</span>' : '')
       + '    </div>'
-      + '    <span class="value" data-value-for="' + key + '">' + (+val).toFixed(digits) + '</span>'
+      + '    <span class="value" data-value-for="' + key + '">' + n.toFixed(d) + '</span>'
       + '  </div>'
       + '  <div class="slider-track">'
-      + '    <input type="range" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" data-key="' + key + '" data-digits="' + digits + '">'
+      + '    <input type="range" min="' + min + '" max="' + max + '" step="' + step + '" value="' + n + '" data-key="' + key + '" data-digits="' + d + '">'
       + '  </div>'
       + '</div>';
   }
@@ -2104,7 +2109,8 @@
     scope.querySelectorAll('input[type="range"]').forEach(function (sl) {
       sl.addEventListener('input', function () {
         var v = +sl.value;
-        var digits = +sl.dataset.digits || 2;
+        var digits = Number(sl.dataset.digits);
+        if (!isFinite(digits)) digits = 2;
         var label = scope.querySelector('[data-value-for="' + sl.dataset.key + '"]');
         if (label) label.textContent = v.toFixed(digits);
         pending[sl.dataset.key] = v;
@@ -3059,6 +3065,7 @@
           + settingsSlider('CONFIDENCE',  'Betrouwbaarheidsdrempel', 'min. score om een waarneming te loggen', v.CONFIDENCE,  0.1, 0.95, 0.05, 2)
           + settingsSlider('SENSITIVITY', 'Gevoeligheid',            'gevoeligheid van de analyser',           v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
           + settingsSlider('OVERLAP',     'Overlap',                 'seconden geanalyseerd per ronde',        v.OVERLAP,     0,   2.5,  0.1,  1)
+          + settingsSlider('AUDIO_HIGHPASS_FREQ', 'Bromfilter',       'hoogdoorlaatfilter in Hz (0 = uit)',     v.AUDIO_HIGHPASS_FREQ, 0, 1000, 50, 0)
           + settingsSegmented('FULL_DISK', 'Bij volle schijf', '', v.FULL_DISK, [
               { v: 'keep',  label: 'behouden' },
               { v: 'purge', label: 'wissen' },

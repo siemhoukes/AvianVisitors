@@ -6,8 +6,8 @@
 // Endpoints:
 //   GET  -> returns current values as JSON.
 //   POST -> JSON body with any whitelisted key. Writes through to
-//           birdnet.conf and restarts birdnet_analysis + birdnet_recording
-//           so the changes take effect immediately.
+//           birdnet.conf and restarts the affected audio services so the
+//           changes take effect immediately.
 //
 // Default LAN deploy: returns data immediately, no auth.
 // Forwarded deploy:  set AV_REQUIRE_AUTH=1 (env) AND configure Caddy
@@ -30,12 +30,13 @@ if (getenv('AV_REQUIRE_AUTH') === '1' && empty($_SERVER['HTTP_AUTHORIZATION'])) 
 $BIRDNETPI_DIR = dirname(__DIR__, 2);
 $CONF_PATH     = "$BIRDNETPI_DIR/birdnet.conf";
 
-// Whitelist: { config_key => { type, min?, max?, restart? } }
+// Whitelist: { config_key => { type, min?, max?, restart?, restart_services? } }
 $ALLOWED = [
     'CONFIDENCE'         => ['type' => 'float', 'min' => 0.05, 'max' => 0.99, 'restart' => true],
     'SENSITIVITY'        => ['type' => 'float', 'min' => 0.5,  'max' => 1.5,  'restart' => true],
     'SF_THRESH'          => ['type' => 'float', 'min' => 0.0,  'max' => 1.0,  'restart' => true],
     'OVERLAP'            => ['type' => 'float', 'min' => 0.0,  'max' => 2.5,  'restart' => true],
+    'AUDIO_HIGHPASS_FREQ' => ['type' => 'int',   'min' => 0,    'max' => 2000, 'restart' => true, 'restart_services' => ['birdnet_recording', 'birdnet_analysis', 'livestream']],
     'MAX_FILES_SPECIES'  => ['type' => 'int',   'min' => 0,    'max' => 100000],
     'FULL_DISK'          => ['type' => 'enum',  'values' => ['purge', 'keep']],
     'PURGE_THRESHOLD'    => ['type' => 'int',   'min' => 50,   'max' => 99],
@@ -173,14 +174,17 @@ if ($method === 'POST') {
     }
 
     // Restart services if any setting requires it.
-    $needsRestart = false;
+    $restartServices = [];
     foreach (array_keys($updates) as $k) {
-        if (!empty($ALLOWED[$k]['restart'])) { $needsRestart = true; break; }
+        if (empty($ALLOWED[$k]['restart'])) continue;
+        foreach (($ALLOWED[$k]['restart_services'] ?? ['birdnet_analysis', 'birdnet_recording']) as $svc) {
+            $restartServices[$svc] = true;
+        }
     }
     $restarted = [];
-    if ($needsRestart) {
-        foreach (['birdnet_analysis', 'birdnet_recording'] as $svc) {
-            // Pre-baked sudoers rule: caddy NOPASSWD: /bin/systemctl restart birdnet_*
+    if ($restartServices) {
+        foreach (array_keys($restartServices) as $svc) {
+            // Pre-baked sudoers rule: caddy may restart only whitelisted units.
             $rc = 0; $out = [];
             exec('sudo /bin/systemctl restart ' . escapeshellarg($svc) . ' 2>&1', $out, $rc);
             $restarted[$svc] = $rc === 0;

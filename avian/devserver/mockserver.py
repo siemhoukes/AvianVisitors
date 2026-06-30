@@ -157,7 +157,7 @@ def locations_payload():
 
 def config_payload():
     return {"values": {"CONFIDENCE": 0.7, "SENSITIVITY": 1.25, "OVERLAP": 0.0,
-                       "FULL_DISK": "purge"},
+                       "AUDIO_HIGHPASS_FREQ": 300, "FULL_DISK": "purge"},
             "meta": {}, "preserve": False}
 
 
