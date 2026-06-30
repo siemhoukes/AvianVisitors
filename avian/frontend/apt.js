@@ -2061,7 +2061,7 @@
   }
 
   function loadSettings() {
-    fetch('./avian/api/config.php', { credentials: 'same-origin', cache: 'no-store' })
+    fetch('./avian/api/config.php', { credentials: 'same-origin', cache: 'no-store', headers: authHeaders() })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (cfg) {
         var v = cfg.values || {};
@@ -2191,7 +2191,7 @@
     fetch('./avian/api/config.php', {
       method: 'POST', body: JSON.stringify(sent),
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
     })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (res) {
@@ -3065,12 +3065,14 @@
     if (s < 86400) return Math.round(s / 3600) + 'h';
     return Math.round(s / 86400) + 'd';
   }
-  // Admin endpoints rely on the session cookie set by /api/auth/login -
-  // no Authorization header needed (and nothing sensitive in JS-readable
-  // storage). credentials: 'same-origin' is the default but spelled out
-  // for clarity.
-  function adminApi(url) {
-    return fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+  // Admin endpoints must always use the app login. If they fall through to
+  // Caddy's Basic Auth, browsers show a native login popup.
+  function adminApi(url, opts) {
+    opts = opts || {};
+    opts.credentials = opts.credentials || 'same-origin';
+    opts.cache = opts.cache || 'no-store';
+    opts.headers = authHeaders(opts.headers || {});
+    return fetch(url, opts);
   }
   function openAdmin(section) {
     document.body.classList.add('admin-on');
@@ -3103,7 +3105,7 @@
 
   function renderAdminSettings() {
     adminBody.innerHTML = '<p style="font:11px ui-monospace,monospace;color:var(--ink-soft);text-align:center">loading settings...</p>';
-    fetch('./avian/api/config.php', { credentials: 'same-origin', cache: 'no-store' })
+    fetch('./avian/api/config.php', { credentials: 'same-origin', cache: 'no-store', headers: authHeaders() })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (cfg) {
         var v = cfg.values || {};
@@ -3150,7 +3152,7 @@
         var tvSeg = adminBody.querySelector('.seg[data-instant-seg="smalltvwindow"]');
         if (tvSeg) {
           var markTv = function (wv) { tvSeg.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-current', b.dataset.v === wv ? 'true' : 'false'); }); };
-          fetch('./avian/api/smalltv-config.php', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) { if (j && j.window) markTv(j.window); }).catch(function () {});
+          fetch('./avian/api/smalltv-config.php', { cache: 'no-store', headers: authHeaders() }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) { if (j && j.window) markTv(j.window); }).catch(function () {});
           tvSeg.querySelectorAll('button').forEach(function (b) {
             b.addEventListener('click', function () {
               markTv(b.dataset.v);
@@ -3279,8 +3281,8 @@
         var unit = b.dataset.unit;
         if (!confirm('Restart ' + unit + '?')) return;
         b.disabled = true; var old = b.textContent; b.textContent = '...';
-        fetch('./avian/api/birdnet-status.php?action=restart&unit=' + encodeURIComponent(unit), {
-          method: 'POST', credentials: 'same-origin',
+        adminApi('./avian/api/birdnet-status.php?action=restart&unit=' + encodeURIComponent(unit), {
+          method: 'POST',
         })
           .then(function (r) { return r.json(); })
           .then(function (j) {
@@ -3383,8 +3385,8 @@
         if (!confirm('restart ' + unit + '?')) return;
         b.disabled = true; var old = b.textContent; b.textContent = '...';
         var out = adminBody.querySelector('.out[data-out="' + unit.replace(/[^a-z0-9_.-]/gi,'_') + '"]');
-        fetch('./avian/api/birdnet-status.php?action=restart&unit=' + encodeURIComponent(unit), {
-          method: 'POST', credentials: 'same-origin',
+        adminApi('./avian/api/birdnet-status.php?action=restart&unit=' + encodeURIComponent(unit), {
+          method: 'POST',
         })
           .then(function (r) { return r.json(); })
           .then(function (j) {
