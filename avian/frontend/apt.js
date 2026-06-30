@@ -1855,7 +1855,7 @@
           resetMediaElement();
           setStatus('bufferen...');
           liveAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-          fetch('/stream?t=' + Date.now(), {
+          fetch('./avian/api/live-stream.php?t=' + Date.now(), {
             headers: authHeaders(), cache: 'no-store',
             signal: liveAbort ? liveAbort.signal : undefined
           }).then(function (resp) {
@@ -2023,12 +2023,39 @@
 
   // Pending changes (key -> value), saved on click of the Save button.
   var pending = {};
+  var settingsSaving = false;
+
+  function settingsRoot() {
+    var btn = document.getElementById('saveBtn');
+    if (btn && btn.closest('.admin-settings')) return btn.closest('.admin-settings');
+    return document.getElementById('settingsBody') || document;
+  }
 
   function setSaveState(msg, cls) {
     var el = document.getElementById('saveState');
     if (el) { el.textContent = msg || ''; el.className = 'save-state' + (cls ? ' ' + cls : ''); }
     var btn = document.getElementById('saveBtn');
-    if (btn) btn.disabled = Object.keys(pending).length === 0;
+    if (btn) {
+      btn.disabled = settingsSaving || Object.keys(pending).length === 0;
+      btn.textContent = settingsSaving ? 'toepassen...' : 'opslaan';
+    }
+  }
+
+  function setSettingsBusy(busy, msg) {
+    settingsSaving = busy;
+    var root = settingsRoot();
+    root.querySelectorAll('.switch:not([data-instant]), input[type="range"], .seg:not([data-theme-seg]):not([data-instant-seg]) button')
+      .forEach(function (el) { el.disabled = busy; });
+    setSaveState(msg || '');
+  }
+
+  function appliedSettingsMessage(restarted) {
+    var units = Object.keys(restarted || {}).filter(function (k) { return restarted[k]; });
+    if (!units.length) return 'opgeslagen';
+    if (units.indexOf('birdnet_recording') !== -1 || units.indexOf('livestream') !== -1) {
+      return 'toegepast, audio herstart';
+    }
+    return 'toegepast, analyse herstart';
   }
 
   function loadSettings() {
@@ -2122,6 +2149,7 @@
     scope = scope || document;
     scope.querySelectorAll('.switch:not([data-instant])').forEach(function (sw) {
       sw.addEventListener('click', function () {
+        if (settingsSaving) return;
         var on = sw.getAttribute('aria-checked') !== 'true';
         sw.setAttribute('aria-checked', on ? 'true' : 'false');
         pending[sw.dataset.key] = on;
@@ -2130,6 +2158,7 @@
     });
     scope.querySelectorAll('input[type="range"]').forEach(function (sl) {
       sl.addEventListener('input', function () {
+        if (settingsSaving) return;
         var v = +sl.value;
         var digits = Number(sl.dataset.digits);
         if (!isFinite(digits)) digits = 2;
@@ -2142,6 +2171,7 @@
     scope.querySelectorAll('.seg:not([data-theme-seg]):not([data-instant-seg])').forEach(function (seg) {
       seg.querySelectorAll('button').forEach(function (b) {
         b.addEventListener('click', function () {
+          if (settingsSaving) return;
           seg.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-current', x === b ? 'true' : 'false'); });
           pending[seg.dataset.key] = b.dataset.v;
           setSaveState('wijziging in behandeling');
@@ -2151,25 +2181,33 @@
   }
 
   function saveSettings() {
-    if (Object.keys(pending).length === 0) return;
-    var body = JSON.stringify(pending);
-    setSaveState('opslaan...');
+    if (settingsSaving || Object.keys(pending).length === 0) return;
+    var sent = {};
+    Object.keys(pending).forEach(function (k) { sent[k] = pending[k]; });
+    pending = {};
+    setSettingsBusy(true, 'toepassen en herstarten...');
     fetch('./avian/api/config.php', {
-      method: 'POST', body: body,
+      method: 'POST', body: JSON.stringify(sent),
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
     })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (res) {
         if (res.ok && res.j.ok) {
-          pending = {};
-          setSaveState('opgeslagen ✓', 'ok');
-          setTimeout(function () { setSaveState(''); }, 1800);
+          setSettingsBusy(false, '');
+          setSaveState(appliedSettingsMessage(res.j.restarted) + ' OK', 'ok');
+          setTimeout(function () { if (!settingsSaving && Object.keys(pending).length === 0) setSaveState(''); }, 2400);
         } else {
-          setSaveState('opslaan mislukt', 'err');
+          pending = Object.assign(sent, pending);
+          setSettingsBusy(false, '');
+          setSaveState('niet toegepast', 'err');
         }
       })
-      .catch(function () { setSaveState('netwerkfout', 'err'); });
+      .catch(function () {
+        pending = Object.assign(sent, pending);
+        setSettingsBusy(false, '');
+        setSaveState('netwerkfout, niet toegepast', 'err');
+      });
   }
 
   // ---- Hash routing + atlas detail modal ----
