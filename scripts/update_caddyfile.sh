@@ -43,6 +43,7 @@ cat << EOF > /etc/caddy/Caddyfile
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   file_server browse
+  header -WWW-Authenticate
   # Always revalidate the app shell so UI changes appear without a manual cache
   # clear (304 when unchanged, fresh bytes when changed).
   @appshell path / /index.html /apt.js /styles.css /dims.json /masks.json
@@ -129,6 +130,7 @@ else
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   file_server browse
+  header -WWW-Authenticate
   # Always revalidate the app shell so UI changes appear without a manual cache
   # clear (304 when unchanged, fresh bytes when changed).
   @appshell path / /index.html /apt.js /styles.css /dims.json /masks.json

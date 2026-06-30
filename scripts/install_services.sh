@@ -191,6 +191,7 @@ install_Caddyfile() {
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   file_server browse
+  header -WWW-Authenticate
   handle /By_Date/* {
     file_server browse
   }
@@ -234,6 +235,7 @@ EOF
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   file_server browse
+  header -WWW-Authenticate
   handle /By_Date/* {
     file_server browse
   }

@@ -1837,6 +1837,17 @@
         liveEl.addEventListener('error', function () {
           if (!triedMse) startMse(new Error('native stream error'));
         });
+        liveEl.addEventListener('ended', function () {
+          if (liveBox.getAttribute('data-on') === 'true') {
+            setStatus('stream herstarten...', true);
+            setTimeout(function() {
+              if (liveBox.getAttribute('data-on') === 'true') {
+                stopAudio();
+                liveBtn.click();
+              }
+            }, 2500);
+          }
+        });
         audioClaim(stopAudio);   // stop any card / modal-recording audio
 
         function resetMediaElement() {

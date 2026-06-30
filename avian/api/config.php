@@ -34,16 +34,16 @@ $CONF_PATH = is_readable($SYSTEM_CONF_PATH) ? $SYSTEM_CONF_PATH : $LOCAL_CONF_PA
 
 // Whitelist: { config_key => { type, min?, max?, restart?, restart_services? } }
 $ALLOWED = [
-    'CONFIDENCE'         => ['type' => 'float', 'min' => 0.05, 'max' => 0.99, 'restart' => true],
-    'SENSITIVITY'        => ['type' => 'float', 'min' => 0.5,  'max' => 1.5,  'restart' => true],
-    'SF_THRESH'          => ['type' => 'float', 'min' => 0.0,  'max' => 1.0,  'restart' => true],
-    'OVERLAP'            => ['type' => 'float', 'min' => 0.0,  'max' => 2.5,  'restart' => true],
+    'CONFIDENCE'         => ['type' => 'float', 'min' => 0.05, 'max' => 0.99, 'restart' => true, 'restart_services' => ['birdnet_analysis']],
+    'SENSITIVITY'        => ['type' => 'float', 'min' => 0.5,  'max' => 1.5,  'restart' => true, 'restart_services' => ['birdnet_analysis']],
+    'SF_THRESH'          => ['type' => 'float', 'min' => 0.0,  'max' => 1.0,  'restart' => true, 'restart_services' => ['birdnet_analysis']],
+    'OVERLAP'            => ['type' => 'float', 'min' => 0.0,  'max' => 2.5,  'restart' => true, 'restart_services' => ['birdnet_analysis']],
     'AUDIO_HIGHPASS_FREQ' => ['type' => 'int',   'min' => 0,    'max' => 2000, 'restart' => true, 'restart_services' => ['birdnet_recording', 'birdnet_analysis', 'livestream']],
     'MAX_FILES_SPECIES'  => ['type' => 'int',   'min' => 0,    'max' => 100000],
     'FULL_DISK'          => ['type' => 'enum',  'values' => ['purge', 'keep']],
     'PURGE_THRESHOLD'    => ['type' => 'int',   'min' => 50,   'max' => 99],
-    'LATITUDE'           => ['type' => 'float', 'min' => -90,  'max' => 90, 'restart' => true],
-    'LONGITUDE'          => ['type' => 'float', 'min' => -180, 'max' => 180, 'restart' => true],
+    'LATITUDE'           => ['type' => 'float', 'min' => -90,  'max' => 90, 'restart' => true, 'restart_services' => ['birdnet_analysis']],
+    'LONGITUDE'          => ['type' => 'float', 'min' => -180, 'max' => 180, 'restart' => true, 'restart_services' => ['birdnet_analysis']],
     'SITE_NAME'          => ['type' => 'string', 'maxlen' => 60],
 ];
 
