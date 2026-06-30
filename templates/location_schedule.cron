@@ -1,0 +1,7 @@
+#birdnet
+# Apply the manual reisschema (avian/api/location-schedule.php writes the plan
+# into birds.db). Runs at boot AND every 10 min, so a FUTURE-dated move flips
+# the active location - and the BirdNET species filter - on its own when its
+# timestamp arrives, even if nobody opens the web UI. Replaces auto_location.
+@reboot root /usr/local/bin/apply_location_schedule.sh >/dev/null 2>&1
+*/10 * * * * root /usr/local/bin/apply_location_schedule.sh >/dev/null 2>&1

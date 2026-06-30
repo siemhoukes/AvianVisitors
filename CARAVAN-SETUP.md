@@ -18,14 +18,16 @@ The caravan Pi (`sjeng@birdnet`, Debian Trixie) went out configured as below.
 - Local: `http://birdnet.local/`. Remote/SSH from anywhere: **Tailscale** (`birdnet-caravan`, `100.108.144.29`); `tailscaled` enabled on boot. (Tip: disable key-expiry for that node in the Tailscale admin console.)
 - WiFi auto-joins, priority: caravan `TRITONQB2.4` > `TRITONQB5` > work `Innotractor` > home `netwerktedienog`. Ethernet is primary when plugged in. Add more: `sudo nmcli device wifi connect "<ssid>" password "<pw>"`.
 
-**Password (the whole "menu/instellingen" + audio + map)**
-- Set via `CADDY_PWD` in `birdnet.conf` (regen with `update_caddyfile.sh`). Username is always `birdnet`; the in-app **menu lock screen** only asks for the password. Enter once → saved in the browser (`localStorage`) → stays logged in.
-- **Open to everyone:** collage, atlas, stats, the kaart *basemap*. **Locked:** the menu/settings (`menu.php`), live audio (`/stream`), recordings, `/terminal`, `/scripts`, `phpsysinfo`, and the **map pins/locations** + edits.
-- Settings live on the **`#admin=settings`** page (behind the password): theme, recording prefs, **Live geluid tonen** (mic stream, OFF by default), and **Scherm-collage toont** (SmallTV window: 8u/24u/7d/deze plek).
+**Passwords — two tiers (regen with `update_caddyfile.sh`)**
+- `CADDY_PWD` → user **`birdnet`** = **admin** (Siem): everything EXCEPT the live mic.
+- `LIVE_PWD` → user **`pensionado`** (parents): everything INCLUDING the live mic.
+- The in-app **menu (top-right) login** only asks for a password; whichever password you type decides the tier. Enter once → saved in the browser (`localStorage`) → stays logged in; **uitloggen** drops back to anonymous. No browser popup — the frontend sends the credential on every request itself.
+- **Open to everyone (no login):** collage, atlas, stats, the kaart *basemap* — **0 sounds, 0 pins**. **Locked:** menu/settings, recordings, map pins/locations, the reisschema, `/terminal`, `/scripts`, `phpsysinfo`. **Live audio (`/stream`) is pensionado-only.**
+- Settings live on the **`#admin=settings`** page: theme, recording prefs, **Live geluid tonen** (pensionado only), **Scherm-collage toont** (SmallTV window).
 
 **SmallTV (GeekMagic)** — `smalltv_push.service` composes the last-24h (or chosen-window) collage and pushes it; auto-discovers the device on the LAN every 30s (survives IP/network changes). At a new site the SmallTV must join the same WiFi (its own AP-fallback / `http://<ip>/network.html`).
 
-**Location** — auto-location is ON: it follows real moves (≥50 km from the last auto-fix) and re-anchors; a hand-moved map pin updates where new birds land and **sticks until the next real move** (auto + manual merge cleanly).
+**Location** — **manual reisschema** (IP geolocation is OFF: the caravan router is registered in another country, so geo-IP was wrong). On the **kaart → reisschema** panel you add date+time entries "from this moment we're at <place>" (search a town and/or nudge the pin). The most recent entry whose time has passed is the **active** location: it sets `birdnet.conf` lat/lon (the BirdNET species filter) and where new birds land. Future-dated entries activate on their own (`apply_location_schedule.sh`, boot + every 10 min). Nothing moves unless you schedule it.
 
 **Power** — use a solid **5V/3A** supply + a good cable (the unit showed under-voltage under load on a marginal supply).
 
@@ -103,14 +105,24 @@ sudo bash ~/BirdNET-Pi/scripts/update_caddyfile.sh
 Now the live stream + recorded clips + the map's location-edit need user `birdnet` +
 `<MIC_PASSWORD>`. The collage/atlas/map/stats stay open for the family.
 
-### 4d. Verify auto-location got installed (should already be there from the installer)
+### 4d. Two-tier login + manual reisschema (this patch)
+After `git pull` brings the new code, on the Pi:
 ```bash
-ls -l /usr/local/bin/auto_location.sh          # symlink should exist
-grep auto_location /etc/crontab                # should show the @reboot line
-grep AUTO_LOCATION /etc/birdnet/birdnet.conf   # should be true
+# 1. Passwords: keep the existing admin (CADDY_PWD); add the pensionado one.
+echo 'LIVE_PWD=P3nsionado!' | sudo tee -a /etc/birdnet/birdnet.conf
+sudo bash ~/BirdNET-Pi/scripts/update_caddyfile.sh     # regen Caddy with both tiers
+
+# 2. Turn OFF IP geolocation, switch to the manual reisschema.
+sudo sed -i 's/^AUTO_LOCATION=.*/AUTO_LOCATION=false/' /etc/birdnet/birdnet.conf
+sudo ln -sf ~/BirdNET-Pi/scripts/apply_location_schedule.sh /usr/local/bin/apply_location_schedule.sh
+sudo cp ~/BirdNET-Pi/templates/location_schedule.cron /etc/cron.d/avian_location_schedule
+sudo bash ~/BirdNET-Pi/scripts/apply_location_schedule.sh   # apply the active entry now (no-op until you add one)
 ```
-On every boot it sets a **general** location from the (tethered) IP if you've moved
->50 km. It's coarse on 4G — fine for the regional species list, correctable by hand later.
+Then open **kaart → reisschema**, add your first "from date+time → place" entry. Auto-location stays neutralised (`AUTO_LOCATION=false` makes the old boot script exit). Verify:
+```bash
+grep -E 'AUTO_LOCATION|LIVE_PWD' /etc/birdnet/birdnet.conf   # false + your live pw
+journalctl -t avian-schedule -b | tail                       # schedule decisions
+```
 
 ### 4e. SmallTV-Ultra collage display (GeekMagic)
 Pushes a packed last-24h collage (the website look, 240×240) to a GeekMagic

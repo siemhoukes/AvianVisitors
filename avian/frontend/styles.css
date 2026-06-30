@@ -487,6 +487,26 @@
     transition: transform 160ms ease, color 160ms ease;
   }
   .menu-links a:hover { transform: translateY(-1px); color: var(--ink); background: var(--paper); }
+  /* Logged-in footer: which tier + a logout control. */
+  .menu-account {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 10px; padding: 8px 4px 2px;
+    box-shadow: inset 0 1px 0 rgba(26,22,18,0.06);
+  }
+  .menu-account .who {
+    font: 9px ui-monospace, Menlo, monospace;
+    letter-spacing: 0.10em; text-transform: lowercase; color: var(--ink-soft);
+  }
+  .menu-account .logout {
+    background: none; border: none; cursor: pointer; padding: 4px 6px;
+    font: 9.5px ui-monospace, Menlo, monospace;
+    letter-spacing: 0.10em; text-transform: lowercase;
+    color: var(--ink-soft); border-radius: 5px;
+  }
+  .menu-account .logout:hover { color: var(--accent); background: var(--paper-2); }
+  /* Anonymous "locked" notice in the species modal's recordings list. */
+  .rec-locked { cursor: pointer; color: var(--ink-soft); }
+  .rec-locked:hover { color: var(--accent); }
   .menu-save-row {
     display: flex; gap: 8px; align-items: center; justify-content: flex-end;
     margin-top: 10px; padding: 0 4px;
@@ -1593,18 +1613,13 @@
   }
   .bird-card[data-playing="true"] .spectro-wrap::before { --playhead: 0.6; }
 
-/* ============ AvianVisitors mode toggle ============
- * Default install (body.av-local): hide the lock-row, show drawer items
- * directly when the menu opens. The PHP shim at /avian/api/menu.php
- * returns items immediately with no auth, so the live JS skips the lock
- * flow entirely.
- *
- * Forwarded install (body.av-forwarded): show the lock row so users
- * type the basic-auth password before items unlock. Pair with
- * AV_REQUIRE_AUTH=1 in php-fpm env + Caddy basic_auth on /avian/api/.
- * See avian/forwarding/. */
-body.av-local #dd-locked { display: none; }
-body.av-local #dd-items  { display: block; }
+/* ============ Login drawer visibility ============
+ * Driven purely by auth state (the JS sets av-anon / av-authed on <body>):
+ * anonymous visitors see the password form; once logged in the form is
+ * replaced by the menu items (renderMenu adds .show to #dd-items). One login,
+ * same on every page - no separate "local" vs "forwarded" build mode. */
+#dd-locked { display: block; }
+body.av-authed #dd-locked { display: none; }
 
 /* ============ App toast + missing-illustration placeholder ============
  * A faint kachō-e bird stands in for any cutout that fails to load, and a
@@ -1716,3 +1731,44 @@ body.av-local #dd-items  { display: block; }
   }
   .stops-list .st-actions button.danger { color: #8a2f2f; }
   .stops-list li.active { background: var(--paper-2); outline: 1px solid var(--accent); }
+
+  /* ---- Reisschema (date-based location plan) ---- */
+  #schedBtn { left: auto; right: 18px; }
+  @media (max-width: 700px) { #schedBtn { left: auto; right: 16px; top: 14px; } }
+  .sched-list .st-main span { font-size: 10px; color: var(--ink-soft); letter-spacing: 0.08em; text-transform: lowercase; }
+  .sched-list li.active .st-main span { color: var(--accent); }
+  .sched-empty, .sched-note { padding: 10px 8px; font-size: 12px; color: var(--ink-soft); list-style: none; }
+  .sched-foot { flex: none; padding: 8px 10px 10px; border-top: 1px solid var(--hairline); }
+  .sched-add {
+    width: 100%; padding: 9px; border: 1px dashed var(--hairline); border-radius: 8px;
+    background: var(--paper-2); color: var(--ink-2); cursor: pointer;
+    font: 11px ui-monospace, Menlo, monospace; letter-spacing: 0.1em; text-transform: lowercase;
+  }
+  .sched-add:hover { color: var(--accent); border-color: var(--accent); }
+  .sched-form { flex: none; padding: 4px 12px 10px; border-top: 1px solid var(--hairline); overflow: auto; }
+  .sched-field { display: block; margin: 8px 0 4px; font-size: 11px; color: var(--ink-soft); letter-spacing: 0.06em; text-transform: lowercase; }
+  .sched-field input[type="date"], .sched-search input {
+    display: block; width: 100%; margin-top: 4px; padding: 8px 10px; box-sizing: border-box;
+    border: 1px solid var(--hairline); border-radius: 8px; background: var(--paper);
+    color: var(--ink); font: 13px ui-monospace, Menlo, monospace;
+  }
+  .sched-search { display: flex; gap: 6px; align-items: stretch; }
+  .sched-search input { margin-top: 4px; }
+  .sched-search button {
+    margin-top: 4px; flex: none; padding: 0 12px; border: none; border-radius: 8px;
+    background: var(--ink); color: var(--paper); cursor: pointer;
+    font: 11px ui-monospace, Menlo, monospace; letter-spacing: 0.1em; text-transform: lowercase;
+  }
+  .sched-results { list-style: none; margin: 6px 0 0; padding: 0; max-height: 132px; overflow: auto; }
+  .sched-results li { padding: 8px 10px; border-radius: 7px; font-size: 12.5px; cursor: pointer; }
+  .sched-results li:hover { background: var(--paper-2); color: var(--accent); }
+  .sched-chosen { margin: 8px 0 4px; font-size: 11px; color: var(--ink-soft); }
+  .sched-chosen.lock-err { color: #8a2f2f; }
+  .sched-form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+  .sched-form-actions button {
+    padding: 8px 14px; border: none; border-radius: 8px; cursor: pointer;
+    background: var(--ink); color: var(--paper);
+    font: 11px ui-monospace, Menlo, monospace; letter-spacing: 0.1em; text-transform: lowercase;
+  }
+  .sched-form-actions button.ghost { background: var(--paper-2); color: var(--ink-soft); }
+  .sched-form-actions button.ghost:hover { color: var(--ink); }

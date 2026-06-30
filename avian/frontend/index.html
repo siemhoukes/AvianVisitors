@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
-<body class="av-local">
+<body>
 <!-- App-wide status toast (aria-live). Currently flags a detected species
      that has no bundled illustration yet. Click to dismiss; auto-hides. -->
 <div id="appToast" class="app-toast" role="status" aria-live="polite"></div>
@@ -55,7 +55,7 @@
       <input id="lockPass" type="password" placeholder="wachtwoord" autocomplete="current-password">
       <button type="submit" aria-label="ontgrendelen">→</button>
     </form>
-    <p class="lock-hint" id="lockHint">voer wachtwoord in om instellingen te ontgrendelen.</p>
+    <p class="lock-hint" id="lockHint">voer wachtwoord in om te ontgrendelen.</p>
   </div>
   <nav class="menu-items" id="dd-items"></nav>
 </aside>
@@ -135,6 +135,7 @@
     <section class="view" id="v3" aria-label="Reisjournaal">
       <div id="tripMap"></div>
       <button type="button" class="map-stops-btn" id="stopsBtn">locaties</button>
+      <button type="button" class="map-stops-btn" id="schedBtn">reisschema</button>
       <p class="map-hint" id="mapHint" hidden></p>
       <p class="map-empty" id="mapEmpty" hidden>Nog geen vogels met locatie &mdash; de kaart vult zich onderweg.</p>
       <!-- Per-pin bird list (opens when a pin is clicked) -->
@@ -158,6 +159,24 @@
           <button type="button" class="loc-close" id="stopsClose" aria-label="sluiten">&times;</button>
         </header>
         <ol class="stops-list" id="stopsList"></ol>
+      </aside>
+      <!-- Reisschema: manual, date-based location plan. Each entry = "from this
+           date we're at this place"; the active entry drives the bird algorithm
+           (birdnet.conf lat/lon) and where new detections land. Replaces the
+           crooked IP geolocation. -->
+      <aside class="loc-panel sched-panel" id="schedPanel" aria-hidden="true">
+        <header class="loc-head">
+          <div>
+            <h2>Reisschema</h2>
+            <p class="loc-sub" id="schedSub">waar de vogels geteld worden</p>
+          </div>
+          <button type="button" class="loc-close" id="schedClose" aria-label="sluiten">&times;</button>
+        </header>
+        <ol class="stops-list sched-list" id="schedList"></ol>
+        <div class="sched-form" id="schedForm" hidden></div>
+        <div class="sched-foot">
+          <button type="button" class="sched-add" id="schedAddBtn">+ plek toevoegen</button>
+        </div>
       </aside>
     </section>
 

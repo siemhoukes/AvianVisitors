@@ -124,21 +124,70 @@
   function readLS(k, fallback) { try { return localStorage.getItem(k) || fallback; } catch (e) { return fallback; } }
   function writeLS(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
-  // ---- Shared basic-auth for the password-gated endpoints (map pins + edits,
-  // and the menu drawer). Set when the user unlocks; kept for the browser
-  // session so pins stay visible without re-asking. Sent explicitly because a
-  // fetch's manually-set Authorization header isn't auto-reused by the browser.
+  // ---- Role-aware auth for the password-gated endpoints --------------------
+  // Two login tiers share the gated endpoints; only the live mic (/stream) is
+  // pensionado-only:
+  //   anonymous  - collage / atlas / stats / basemap only. 0 sounds, 0 pins.
+  //   pensionado - everything, INCLUDING the live mic.   (Caddy user "pensionado")
+  //   admin/Siem - everything EXCEPT the live mic.        (Caddy user "birdnet")
+  // The role is learned at login from which username the entered password
+  // matches (see the unlockForm handler). Capabilities below are only for
+  // showing/hiding UI - the SERVER (Caddy basic_auth, per path) is the real
+  // enforcer, so a hidden control can never be used to reach gated data.
+  // Creds are sent explicitly (fetch won't auto-reuse them); for media
+  // elements that can't set headers (/stream, recording.php) the browser
+  // replays the creds it cached from the unlock POST below.
+  var CAPS = {
+    anon:       { authed: false, live: false, settings: false, clips: false, locations: false },
+    pensionado: { authed: true,  live: true,  settings: true,  clips: true,  locations: true },
+    admin:      { authed: true,  live: false, settings: true,  clips: true,  locations: true }
+  };
   var AV_AUTH = '';
   try { AV_AUTH = localStorage.getItem('bird:auth') || ''; } catch (e) {}   // persists -> stay logged in
+  var AV_ROLE = readLS('bird:role', 'anon');
+  if (!CAPS[AV_ROLE] || !AV_AUTH) AV_ROLE = 'anon';
+  var AV_CAPS = CAPS[AV_ROLE] || CAPS.anon;
   function authHeaders(extra) {
     var h = extra || {};
     if (AV_AUTH) h['Authorization'] = AV_AUTH;
     return h;
   }
-  function setAuth(hdr) {
-    AV_AUTH = hdr || '';
-    try { hdr ? localStorage.setItem('bird:auth', hdr) : localStorage.removeItem('bird:auth'); } catch (e) {}
+  // Reflect the tier on <body> so CSS can thoroughly hide gated affordances
+  // for anonymous visitors (belt-and-braces on top of the server gate).
+  function applyRole() {
+    AV_CAPS = CAPS[AV_ROLE] || CAPS.anon;
+    var b = document.body;
+    b.classList.toggle('av-anon', !AV_CAPS.authed);
+    b.classList.toggle('av-authed', AV_CAPS.authed);
+    b.classList.toggle('av-live', AV_CAPS.live);
+    b.classList.toggle('av-can-clips', AV_CAPS.clips);
   }
+  function setAuth(hdr, role) {
+    AV_AUTH = hdr || '';
+    AV_ROLE = (hdr && role && CAPS[role]) ? role : 'anon';
+    try {
+      if (hdr) { localStorage.setItem('bird:auth', hdr); localStorage.setItem('bird:role', AV_ROLE); }
+      else { localStorage.removeItem('bird:auth'); localStorage.removeItem('bird:role'); }
+    } catch (e) {}
+    // Blob URLs were minted with the OLD credential; drop them so a re-login
+    // (or logout) re-fetches with the right one.
+    for (var k in _blobUrlCache) { try { URL.revokeObjectURL(_blobUrlCache[k]); } catch (e) {} }
+    _blobUrlCache = {};
+    applyRole();
+  }
+  // Fetch a password-gated audio clip WITH the Authorization header and hand
+  // back a same-origin blob: URL. Media elements (<audio>) can't set their own
+  // headers and browsers don't reliably replay cached Basic creds to them, so
+  // we fetch the bytes ourselves (where we CAN set the header) and play the
+  // blob. Cached per URL; cleared on auth change. Used for recorded clips.
+  var _blobUrlCache = {};
+  function authedAudioUrl(url) {
+    if (_blobUrlCache[url]) return Promise.resolve(_blobUrlCache[url]);
+    return fetch(url, { headers: authHeaders(), cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+      .then(function (b) { var u = URL.createObjectURL(b); _blobUrlCache[url] = u; return u; });
+  }
+  applyRole();
 
   // ---- Single-audio coordinator ----
   // Only one source plays at a time across the whole app: atlas-card
@@ -1405,6 +1454,9 @@
     grid.querySelectorAll('[data-action="play"]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var card = btn.closest('.bird-card');
+        // Anonymous visitors get 0 sounds: send them to the login instead of
+        // firing a recording.php request that the server would 401 anyway.
+        if (!AV_CAPS.clips) { requireLogin(); return; }
         if (btn === currentBtn) { stopCurrent(); return; }
         stopCurrent();
         audioClaim(stopCurrent);   // stop any modal-recording / live-stream audio
@@ -1425,7 +1477,7 @@
           } else {
             var actx = getSpecCtx();
             if (actx) {
-              fetch(aurl)
+              fetch(aurl, { headers: authHeaders() })
                 .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
                 .then(function (b) { return actx.decodeAudioData(b); })
                 .then(function (buf) {
@@ -1443,8 +1495,9 @@
             }
           }
         }
-        // Start audio.
-        var audio = new Audio(card.dataset.audio);
+        // Start audio. Fetch the clip WITH the Authorization header and play
+        // it from a blob URL (a bare <audio src> can't carry the header).
+        var audio = new Audio();
         audio.addEventListener('canplay', function () {
           if (currentBtn !== btn) return; // user clicked away
           setBtnState(btn, 'playing');
@@ -1468,7 +1521,12 @@
           }
         });
         currentAudio = audio;
-        audio.load();
+        authedAudioUrl(card.dataset.audio).then(function (u) {
+          if (currentBtn !== btn) return;     // user clicked away during fetch
+          audio.src = u; audio.load();
+        }).catch(function () {
+          if (currentBtn === btn) { setBtnState(btn, 'missing'); clearProgressOn(card); currentAudio = null; currentBtn = null; }
+        });
       });
     });
 
@@ -1600,48 +1658,89 @@
   // request reaches PHP - so a 200 here means we're authed, a 401
   // means Caddy rejected and we need the lock-screen flow.
   function tryAutoUnlock() {
-    // Send the saved credential so a returning (already-unlocked) visitor goes
-    // straight in - no lock screen, no browser prompt. Empty header -> 401 ->
-    // the in-app lock screen handles it (fetch never triggers the native popup).
+    // Probe menu.php once on load. With a stored credential a 200 opens the
+    // drawer straight to its tier. With NO credential it 401s - which keeps
+    // the login form up AND, crucially, lets the browser learn the Basic-auth
+    // "protection space" (realm). That priming is what makes the browser later
+    // replay the credentials it caches at login to media elements that can't
+    // set their own Authorization header (the live /stream, recording.php
+    // clips). Without this probe, /stream loads anonymously and 401s.
     fetch('./avian/api/menu.php', { credentials: 'same-origin', headers: authHeaders() }).then(function (r) {
       if (r.status === 200) {
+        applyRole();
         return r.json().then(function (j) { renderMenu(j.items || []); });
       }
+      if (AV_AUTH) setAuth('');   // stored cred no longer valid (password changed) -> anon
     }).catch(function () {});
   }
   tryAutoUnlock();
 
   document.getElementById('unlockForm').addEventListener('submit', function (e) {
     e.preventDefault();
-    // BirdNET-Pi's upstream Caddyfile basicauth user is `birdnet`.
-    // If your install changed it (custom Caddyfile), set window.AV_AUTH_USER
-    // before this script loads - e.g. an inline <script> in index.html.
-    var u = (window.AV_AUTH_USER || 'birdnet');
     var p = document.getElementById('lockPass').value;
-    var hdr = 'Basic ' + btoa(u + ':' + p);
-    // POST to menu.php with the header so the browser caches the basic
-    // creds for every subsequent request. If Caddy basic_auth accepts
-    // them we get a 200 and the drawer renders; 401 means wrong password.
-    fetch('./avian/api/menu.php', {
-      method: 'POST',
-      headers: { 'Authorization': hdr },
-      credentials: 'same-origin',
-    }).then(function (r) {
-      if (r.status === 200) {
-        setAuth(hdr);                       // same password unlocks the map pins
-        return r.json().then(function (j) { renderMenu(j.items || []); if (typeof currentView !== 'undefined' && currentView === 3) renderMap(); });
-      } else if (r.status === 401) {
+    lockHint.classList.remove('lock-err');
+    lockHint.textContent = 'controleren...';
+    // One password field, two tiers. Try the pensionado credential first (it
+    // unlocks live audio too); fall back to the admin (birdnet) credential.
+    // Whichever username the password validates against IS the tier. POSTing
+    // the header to the gated menu.php also primes the browser's basic-auth
+    // cache so media elements (/stream, recording.php) get the creds later.
+    var attempts = [
+      { user: (window.AV_LIVE_USER || 'pensionado'), role: 'pensionado' },
+      { user: (window.AV_AUTH_USER || 'birdnet'),    role: 'admin' }
+    ];
+    function tryAt(i) {
+      if (i >= attempts.length) {
         lockHint.textContent = 'onjuist wachtwoord.';
         lockHint.classList.add('lock-err');
-      } else {
+        return;
+      }
+      var a = attempts[i];
+      var hdr = 'Basic ' + btoa(a.user + ':' + p);
+      fetch('./avian/api/menu.php', {
+        method: 'POST',
+        headers: { 'Authorization': hdr },
+        credentials: 'same-origin',
+      }).then(function (r) {
+        if (r.status === 200) {
+          setAuth(hdr, a.role);             // also unlocks map pins + recordings
+          return r.json().then(function (j) {
+            lockHint.textContent = '';
+            renderMenu(j.items || []);
+            if (typeof currentView !== 'undefined' && currentView === 3) renderMap();
+            if (typeof currentView !== 'undefined' && currentView === 2 && typeof renderAtlas === 'function') renderAtlas();
+          });
+        }
+        if (r.status === 401) { tryAt(i + 1); return; }   // wrong user/pass for this tier
         lockHint.textContent = 'authenticatie niet beschikbaar.';
         lockHint.classList.add('lock-err');
-      }
-    }).catch(function () {
-      lockHint.textContent = 'netwerkfout.';
-      lockHint.classList.add('lock-err');
-    });
+      }).catch(function () {
+        lockHint.textContent = 'netwerkfout.';
+        lockHint.classList.add('lock-err');
+      });
+    }
+    tryAt(0);
   });
+
+  // Open the drawer on its login form (used when a gated control is tapped
+  // by an anonymous visitor - e.g. a play button or a map pin).
+  function requireLogin() { if (!AV_CAPS.authed) openDd(); }
+  // Log out: drop the stored credential and return the UI to the anonymous
+  // tier. (The browser keeps its own basic-auth cache until the tab closes,
+  // but the FE never requests gated media once caps say it can't, so the UI
+  // is fully anonymous again.)
+  function doLogout() {
+    setAuth('');
+    items.classList.remove('show');
+    items.innerHTML = '';
+    locked.style.display = '';
+    lockHint.classList.remove('lock-err');
+    lockHint.textContent = 'voer wachtwoord in om te ontgrendelen.';
+    var lp = document.getElementById('lockPass'); if (lp) lp.value = '';
+    if (typeof closeAdmin === 'function') closeAdmin();
+    if (typeof currentView !== 'undefined' && currentView === 3 && typeof renderMap === 'function') renderMap();
+    if (typeof currentView !== 'undefined' && currentView === 2 && typeof renderAtlas === 'function') renderAtlas();
+  }
 
   // Render the unlocked drawer:
   //   - inline LIVE AUDIO player (streams icecast through the worker tunnel)
@@ -1664,9 +1763,12 @@
       var cls = it.native ? '' : ' class="ext"';
       return '<a' + cls + ' href="' + it.href + '"' + attrs + '><span>' + label + '</span></a>';
     }).join('');
-    // Live mic stream is hidden by default (per-device toggle) - parents
-    // shouldn't see a "listen to the microphone" button unless turned on.
-    var showLive = readLS('bird:liveaudio', 'off') === 'on';
+    // Live mic stream: ONLY the pensionado tier may hear it (admin/Siem must
+    // not be able to eavesdrop live). Within that tier it's on by default but
+    // can be hidden per-device via the settings toggle.
+    var showLive = AV_CAPS.live && readLS('bird:liveaudio', 'on') === 'on';
+    var roleLabel = AV_ROLE === 'pensionado' ? 'volledige toegang'
+                  : AV_ROLE === 'admin' ? 'beheer (geen live)' : '';
     items.innerHTML =
       '<div id="liveWrap"' + (showLive ? '' : ' hidden') + '>'
       + '<div class="live-audio" id="liveAudio" data-on="false">'
@@ -1682,7 +1784,18 @@
       + '<canvas class="live-spectro" id="liveSpectro" width="600" height="120" aria-label="live spectrogram"></canvas>'
       + '<div class="live-status" id="liveStatus"></div>'
       + '</div>'
-      + '<div class="menu-links">' + linksHtml + '</div>';
+      + '<div class="menu-links">' + linksHtml + '</div>'
+      + '<div class="menu-account">'
+      +   '<span class="who">ingelogd' + (roleLabel ? ' · ' + roleLabel : '') + '</span>'
+      +   '<button type="button" id="logoutBtn" class="logout">uitloggen</button>'
+      + '</div>';
+
+    // Logout returns the drawer to the login form and the UI to anonymous.
+    var logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) logoutBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      doLogout();
+    });
 
     // Clicking a nav link (settings / system / logs / tools) collapses the
     // menu back into the button - it has opened (or navigated to) its page,
@@ -1703,44 +1816,73 @@
     var spectroEl = document.getElementById('liveSpectro');
     var statusEl = document.getElementById('liveStatus');
     var liveEl = null, audioCtx = null, srcNode = null, analyser = null;
-    var specRaf = null;
+    var specRaf = null, liveAbort = null;
 
     function setStatus(msg, isErr) {
       statusEl.textContent = msg || '';
       statusEl.className = 'live-status' + (isErr ? ' err' : '');
     }
     function startAudio() {
-      // Create the Audio element and resolve on the first "playing"
-      // event (success). The browser will hang the network request
-      // open for an icecast stream - that's normal - and "playing"
-      // fires as soon as the first audio frame is decoded. We don't
-      // race a timeout because icecast can take 1-10s to warm up
-      // depending on tunnel + bitrate.
+      // The live stream is pensionado-gated. A bare <audio src="/stream"> can't
+      // send the Authorization header and browsers don't reliably replay cached
+      // Basic creds to media elements - so we fetch the stream OURSELVES (where
+      // we can set the header) and feed it to the element:
+      //   * audio/mpeg (real icecast) -> stream chunks through a MediaSource so
+      //     playback stays live (the fetch body never ends).
+      //   * anything else (e.g. the dev mock's WAV) -> play the bytes as a blob.
+      // Resolves on the first "playing" event; icecast can take 1-10s to warm
+      // up, so no timeout race.
       return new Promise(function (resolve, reject) {
-        liveEl = new Audio('/stream?t=' + Date.now());
-        // No crossOrigin - the stream is same-origin via the worker
-        // and crossOrigin='anonymous' would require CORS headers
-        // icecast doesn't send.
         var settled = false;
-        liveEl.addEventListener('playing', function () {
-          if (settled) return;
-          settled = true; resolve();
-        });
-        liveEl.addEventListener('error', function () {
-          if (settled) return;
-          settled = true;
-          reject(new Error('stream error - check /#admin=system'));
-        });
+        function ok()  { if (!settled) { settled = true; resolve(); } }
+        function bad(e){ if (!settled) { settled = true; reject(e); } }
+        liveEl = new Audio();
+        liveEl.addEventListener('playing', ok);
+        liveEl.addEventListener('error', function () { bad(new Error('stream error - check /#admin=system')); });
         audioClaim(stopAudio);   // stop any card / modal-recording audio
-        liveEl.play().catch(function (e) {
-          if (settled) return;
-          settled = true; reject(e);
-        });
+        liveAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        fetch('/stream?t=' + Date.now(), {
+          headers: authHeaders(), cache: 'no-store',
+          signal: liveAbort ? liveAbort.signal : undefined
+        }).then(function (resp) {
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          var ctype = (resp.headers.get('Content-Type') || '').toLowerCase();
+          var canMSE = window.MediaSource && ctype.indexOf('mpeg') !== -1
+            && MediaSource.isTypeSupported('audio/mpeg') && resp.body && resp.body.getReader;
+          if (canMSE) {
+            var ms = new MediaSource();
+            liveEl.src = URL.createObjectURL(ms);
+            ms.addEventListener('sourceopen', function () {
+              var sb;
+              try { sb = ms.addSourceBuffer('audio/mpeg'); } catch (e) { bad(e); return; }
+              var reader = resp.body.getReader();
+              var queue = [];
+              function flush() {
+                if (sb.updating || !queue.length) return;
+                try { sb.appendBuffer(queue.shift()); } catch (e) {}
+              }
+              sb.addEventListener('updateend', flush);
+              (function pump() {
+                reader.read().then(function (r) {
+                  if (r.done) { try { if (!sb.updating) ms.endOfStream(); } catch (e) {} return; }
+                  queue.push(r.value); flush(); pump();
+                }).catch(function () {});
+              })();
+            });
+            liveEl.play().catch(bad);
+          } else {
+            return resp.blob().then(function (b) {
+              liveEl.src = URL.createObjectURL(b);
+              liveEl.play().catch(bad);
+            });
+          }
+        }).catch(bad);
       });
     }
     function stopAudio() {
       audioRelease(stopAudio);
       if (specRaf) { cancelAnimationFrame(specRaf); specRaf = null; }
+      if (liveAbort) { try { liveAbort.abort(); } catch (e) {} liveAbort = null; }
       if (liveEl) { try { liveEl.pause(); } catch (e) {} liveEl.src = ''; liveEl = null; }
       if (srcNode) { try { srcNode.disconnect(); } catch (e) {} srcNode = null; }
       if (analyser) { try { analyser.disconnect(); } catch (e) {} analyser = null; }
@@ -2262,6 +2404,13 @@
       if (rar === 'zeldzaam') rarEl.classList.add('rare');
       var dets = j.detections || [];
       document.getElementById('modalRecCount').textContent = dets.length + ' opgenomen';
+      // Anonymous visitors get 0 sounds - show a locked notice instead of the
+      // playable recording rows (the audio endpoint is server-gated anyway).
+      if (!AV_CAPS.clips) {
+        document.getElementById('modalRecordings').innerHTML =
+          '<li class="rec-empty rec-locked">Log in om de opnames te beluisteren.</li>';
+        return;
+      }
       document.getElementById('modalRecordings').innerHTML = dets.length
         ? dets.map(function (d) {
             return '<li class="rec-row" data-file="' + (d.file || '') + '" data-date="' + (d.d || '') + '">'
@@ -2492,7 +2641,10 @@
       + '<br><button type="button" class="map-stops-btn" id="mapUnlock" style="position:static;margin-top:10px">wachtwoord invoeren</button>';
     mapEmptyEl.hidden = false;
     var b = document.getElementById('mapUnlock');
-    if (b) b.addEventListener('click', promptMapUnlock);
+    // stopPropagation: without it this click also bubbles to the document
+    // "click outside the drawer -> close it" handler, which would slam the
+    // login drawer shut the instant promptMapUnlock opens it.
+    if (b) b.addEventListener('click', function (ev) { ev.stopPropagation(); promptMapUnlock(); });
   }
   function promptMapUnlock() {
     // Reuse the menu's lock screen (the same clean password field) instead of a
@@ -2557,6 +2709,138 @@
     if (msg) { mapHintEl.textContent = msg; mapHintEl.hidden = false; }
     else { mapHintEl.hidden = true; }
   }
+
+  // ---- Reisschema: manual, date-based location plan -----------------------
+  // Each entry = "from this date we're at <place>". The active entry (latest
+  // whose date <= today) drives birdnet.conf lat/lon (the species filter) and
+  // where new detections land. Replaces the IP geolocation. Pick a place by
+  // searching (geocode) and/or nudging the pin on the map.
+  var schedBtn     = document.getElementById('schedBtn');
+  var schedPanel   = document.getElementById('schedPanel');
+  var schedListEl  = document.getElementById('schedList');
+  var schedFormEl  = document.getElementById('schedForm');
+  var schedSubEl   = document.getElementById('schedSub');
+  var schedAddBtn  = document.getElementById('schedAddBtn');
+  var schedClose   = document.getElementById('schedClose');
+  var schedPin = null, schedSel = null, schedEditId = 0, schedNow = '', schedData = [];
+  var NL_MON = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+  function fmtSchedTs(ts) {
+    // "YYYY-MM-DDTHH:MM" -> "d mmm yyyy, HH:MM"
+    var parts = (ts || '').split('T');
+    var d = (parts[0] || '').split('-'); if (d.length !== 3) return ts || '';
+    var out = (+d[2]) + ' ' + (NL_MON[(+d[1]) - 1] || d[1]) + ' ' + d[0];
+    if (parts[1]) out += ', ' + parts[1].slice(0, 5);
+    return out;
+  }
+  function schedActiveOpen() { return schedPanel && schedPanel.getAttribute('aria-hidden') === 'false'; }
+  function schedFormOpen() { return schedFormEl && !schedFormEl.hidden; }
+  // Hide the floating map buttons while a panel is open so they don't sit on
+  // top of the panel header (they have a higher z-index than the panels).
+  function setMapBtns(show) { var d = show ? '' : 'none'; if (schedBtn) schedBtn.style.display = d; var sb = document.getElementById('stopsBtn'); if (sb) sb.style.display = d; }
+  function openSchedPanel() {
+    if (!AV_AUTH) { promptMapUnlock(); return; }
+    if (stopsPanel) stopsPanel.setAttribute('aria-hidden', 'true');
+    closeLocPanel();
+    schedPanel.setAttribute('aria-hidden', 'false');
+    setMapBtns(false);
+    renderSchedule();
+  }
+  function closeSchedPanel() { if (schedPanel) schedPanel.setAttribute('aria-hidden', 'true'); hideSchedForm(); setMapBtns(true); }
+  function renderSchedule() {
+    fetch('./avian/api/location-schedule.php', { cache: 'no-store', headers: authHeaders() })
+      .then(function (r) { if (r.status === 401) { setAuth(''); closeSchedPanel(); promptMapUnlock(); return null; } return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j) return;
+        schedNow = j.now || ''; schedData = j.schedule || [];
+        var active = j.active;
+        schedSubEl.textContent = active ? ('nu: ' + active.label) : 'nog geen plek ingesteld';
+        if (!schedData.length) { schedListEl.innerHTML = '<li class="sched-empty">Nog geen plekken — voeg je eerste plek toe.</li>'; return; }
+        schedListEl.innerHTML = schedData.map(function (e) {
+          var isActive = active && e.id === active.id;
+          var future = e.from_ts > schedNow;
+          var tag = isActive ? 'nu hier' : (future ? 'gepland' : '');
+          return '<li class="' + (isActive ? 'active' : '') + '" data-id="' + e.id + '">'
+            + '<div class="st-main"><b>' + escAttr(e.label || '(naamloos)') + '</b><span>' + tag + '</span></div>'
+            + '<div class="st-sub">vanaf ' + fmtSchedTs(e.from_ts) + '</div>'
+            + '<div class="st-actions"><button type="button" data-act="edit">wijzig</button>'
+            + '<button type="button" data-act="del" class="danger">verwijder</button></div></li>';
+        }).join('');
+      }).catch(function () {});
+  }
+  function escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+  function showSchedForm(entry) {
+    var e = entry || { id: 0, from_ts: schedNow || '', lat: '', lon: '', label: '' };
+    schedEditId = e.id || 0;
+    schedSel = (e.lat !== '' && e.lat != null) ? { lat: +e.lat, lon: +e.lon, label: e.label } : null;
+    schedFormEl.hidden = false;
+    schedFormEl.innerHTML =
+      '<label class="sched-field">datum + tijd<input type="datetime-local" id="schedTs" value="' + (e.from_ts || schedNow || '') + '"></label>'
+      + '<label class="sched-field">plek zoeken<span class="sched-search">'
+      + '<input type="text" id="schedSearch" placeholder="bv. Porto" autocomplete="off"><button type="button" id="schedSearchBtn">zoek</button></span></label>'
+      + '<ul class="sched-results" id="schedResults"></ul>'
+      + '<p class="sched-chosen" id="schedChosen">' + (schedSel ? ('gekozen: ' + escAttr(schedSel.label) + ' — sleep de pin of tik op de kaart om bij te stellen') : 'zoek een plek of tik op de kaart') + '</p>'
+      + '<div class="sched-form-actions"><button type="button" id="schedSave">opslaan</button><button type="button" id="schedCancel" class="ghost">annuleren</button></div>';
+    document.getElementById('schedSearchBtn').addEventListener('click', doSchedSearch);
+    document.getElementById('schedSearch').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); doSchedSearch(); } });
+    document.getElementById('schedResults').addEventListener('click', function (ev) { var li = ev.target.closest('li[data-lat]'); if (li) selectSchedPlace(+li.dataset.lat, +li.dataset.lon, li.dataset.label); });
+    document.getElementById('schedSave').addEventListener('click', saveSched);
+    document.getElementById('schedCancel').addEventListener('click', hideSchedForm);
+    if (schedSel) dropSchedPin(schedSel.lat, schedSel.lon);
+  }
+  function hideSchedForm() { if (schedFormEl) { schedFormEl.hidden = true; schedFormEl.innerHTML = ''; } removeSchedPin(); schedEditId = 0; schedSel = null; }
+  function doSchedSearch() {
+    var q = (document.getElementById('schedSearch').value || '').trim();
+    var ul = document.getElementById('schedResults');
+    if (!q) { ul.innerHTML = ''; return; }
+    ul.innerHTML = '<li class="sched-note">zoeken…</li>';
+    fetch('./avian/api/geocode.php?q=' + encodeURIComponent(q), { cache: 'no-store', headers: authHeaders() })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        var res = (j && j.results) || [];
+        if (!res.length) { ul.innerHTML = '<li class="sched-note">niets gevonden</li>'; return; }
+        ul.innerHTML = res.map(function (r) { return '<li data-lat="' + r.lat + '" data-lon="' + r.lon + '" data-label="' + escAttr(r.label) + '">' + escAttr(r.label) + '</li>'; }).join('');
+      }).catch(function () { ul.innerHTML = '<li class="sched-note">zoeken mislukt</li>'; });
+  }
+  function selectSchedPlace(lat, lon, label) {
+    schedSel = { lat: lat, lon: lon, label: label || ('plek (' + lat.toFixed(3) + ', ' + lon.toFixed(3) + ')') };
+    var c = document.getElementById('schedChosen');
+    if (c) { c.classList.remove('lock-err'); c.textContent = 'gekozen: ' + schedSel.label + ' — sleep de pin of tik op de kaart om bij te stellen'; }
+    var ul = document.getElementById('schedResults'); if (ul) ul.innerHTML = '';
+    var s = document.getElementById('schedSearch'); if (s) s.value = '';
+    dropSchedPin(lat, lon);
+  }
+  function dropSchedPin(lat, lon) {
+    if (!lmap) return;
+    removeSchedPin();
+    schedPin = L.marker([lat, lon], { draggable: true, icon: pinIcon('+') }).addTo(lmap);
+    schedPin.on('dragend', function (e) { var ll = e.target.getLatLng(); if (schedSel) { schedSel.lat = ll.lat; schedSel.lon = ll.lng; } });
+    lmap.setView([lat, lon], 8);
+  }
+  function removeSchedPin() { if (schedPin && lmap) { try { lmap.removeLayer(schedPin); } catch (e) {} } schedPin = null; }
+  function saveSched() {
+    var ts = (document.getElementById('schedTs') || {}).value || '';
+    var chosen = document.getElementById('schedChosen');
+    if (!ts) { if (chosen) { chosen.classList.add('lock-err'); chosen.textContent = 'kies datum + tijd'; } return; }
+    if (!schedSel) { if (chosen) { chosen.classList.add('lock-err'); chosen.textContent = 'kies eerst een plek (zoek of tik op de kaart)'; } return; }
+    var body = { op: schedEditId ? 'update' : 'add', from_ts: ts, lat: schedSel.lat, lon: schedSel.lon, label: schedSel.label };
+    if (schedEditId) body.id = schedEditId;
+    fetch('./avian/api/location-schedule.php', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function () { hideSchedForm(); renderSchedule(); renderMap(); }).catch(function () {});
+  }
+  if (schedListEl) schedListEl.addEventListener('click', function (ev) {
+    var li = ev.target.closest('li[data-id]'); if (!li) return;
+    var id = +li.dataset.id, act = ev.target.getAttribute('data-act');
+    var entry = schedData.filter(function (e) { return e.id === id; })[0];
+    if (act === 'edit' && entry) { showSchedForm(entry); }
+    else if (act === 'del') {
+      fetch('./avian/api/location-schedule.php', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ op: 'delete', id: id }) })
+        .then(function () { renderSchedule(); renderMap(); }).catch(function () {});
+    }
+  });
+  if (schedBtn) schedBtn.addEventListener('click', function (ev) { ev.stopPropagation(); openSchedPanel(); });
+  if (schedClose) schedClose.addEventListener('click', closeSchedPanel);
+  if (schedAddBtn) schedAddBtn.addEventListener('click', function () { showSchedForm(null); });
   function buildMap() {
     var base = 'https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png';
     // Zoom control bottom-right so it doesn't sit under the "locaties" button.
@@ -2568,6 +2852,10 @@
     mapLayer = L.layerGroup().addTo(lmap);
     lmap.setView([46, 2], 5);
     lmap.on('click', function (e) {
+      if (schedActiveOpen() && schedFormOpen()) {     // reisschema: tap to set the place
+        selectSchedPlace(e.latlng.lat, e.latlng.lng, schedSel ? schedSel.label : '');
+        return;
+      }
       if (pendingMove) {                            // move-mode: relocate the chosen stop here
         var loc = pendingMove; pendingMove = null; setHint('');
         editStop(loc, 'move', e.latlng);
@@ -2601,10 +2889,11 @@
 
   // ---- All-stops menu: list every stop, move or delete it ----
   var stopsData = [];
-  function closeStopsPanel() { if (stopsPanel) stopsPanel.setAttribute('aria-hidden', 'true'); }
+  function closeStopsPanel() { if (stopsPanel) stopsPanel.setAttribute('aria-hidden', 'true'); setMapBtns(true); }
   function openStopsPanel() {
     if (!stopsPanel) return;
     closeLocPanel();
+    if (typeof closeSchedPanel === 'function') closeSchedPanel();
     if (!AV_AUTH) { promptMapUnlock(); return; }
     fetch('./avian/api/birdnet-api.php?action=locations', { cache: 'no-store', headers: authHeaders() })
       .then(function (r) { if (r.status === 401) { setAuth(''); promptMapUnlock(); return null; } return r.ok ? r.json() : null; })
@@ -2622,6 +2911,7 @@
           + '<button data-act="del" class="danger">verwijder</button></div></li>';
       }).join('') || '<li class="st-sub">Nog geen locaties.</li>';
       stopsPanel.setAttribute('aria-hidden', 'false');
+      setMapBtns(false);
     }).catch(function () {});
   }
   if (stopsPanel) {
@@ -2731,12 +3021,17 @@
       .then(function (cfg) {
         var v = cfg.values || {};
         var preserve = cfg.preserve;
-        var showLive = readLS('bird:liveaudio', 'off') === 'on';
+        var showLive = readLS('bird:liveaudio', 'on') === 'on';
+        // The live-audio toggle is only meaningful for the pensionado tier
+        // (admin can't hear the live mic at all), so only show it there.
+        var liveRow = AV_CAPS.live
+          ? '<div class="menu-row"><div><span class="label">Live geluid tonen</span><span class="hint">microfoon-stream in het menu</span></div>'
+            + '<button type="button" class="switch" role="switch" aria-checked="' + (showLive ? 'true' : 'false') + '" data-instant="liveaudio"></button></div>'
+          : '';
         adminBody.innerHTML =
           '<div class="admin-settings">'
           + themeRow()
-          + '<div class="menu-row"><div><span class="label">Live geluid tonen</span><span class="hint">microfoon-stream in het menu</span></div>'
-          +   '<button type="button" class="switch" role="switch" aria-checked="' + (showLive ? 'true' : 'false') + '" data-instant="liveaudio"></button></div>'
+          + liveRow
           + '<div class="menu-row"><div><span class="label">Scherm-collage toont</span><span class="hint">wat het kleine scherm laat zien</span></div>'
           +   '<div class="seg" data-instant-seg="smalltvwindow">'
           +     ['8h:8 uur', '24h:24 uur', '7d:7 dagen', 'location:deze plek'].map(function (o) { var p = o.split(':'); return '<button type="button" data-v="' + p[0] + '">' + p[1] + '</button>'; }).join('')
@@ -3287,7 +3582,7 @@
     }
     var ctx = getSpecCtx();
     if (!ctx) { fail('WebAudio not available'); return; }
-    fetch('./avian/api/recording.php?file=' + encodeURIComponent(file))
+    fetch('./avian/api/recording.php?file=' + encodeURIComponent(file), { headers: authHeaders() })
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.arrayBuffer();
@@ -3313,6 +3608,8 @@
   //     mousedown/touchstart wiring further down).
   document.getElementById('modalRecordings').addEventListener('click', function (ev) {
     if (!ev.target.closest) return;
+    // Locked notice (anonymous): tapping it opens the login drawer.
+    if (ev.target.closest('.rec-locked')) { requireLogin(); return; }
     // Scrub-region clicks are handled by the mousedown wiring below.
     if (ev.target.closest('.rec-spectro-scrub')) return;
 
@@ -3352,8 +3649,12 @@
       prow.classList.add('expanded');
       ensureSpectroImage(prow);
       var strip = prow.querySelector('.rec-spectro');
-      var audio = new Audio('./avian/api/recording.php?file=' + encodeURIComponent(pfile));
+      // Fetch the clip WITH the Authorization header, play from a blob URL.
+      var audio = new Audio();
       modalAudio = audio;
+      authedAudioUrl('./avian/api/recording.php?file=' + encodeURIComponent(pfile))
+        .then(function (u) { if (modalAudio === audio) { audio.src = u; audio.play().catch(function () { stopModalAudio(); }); } })
+        .catch(function () { stopModalAudio(); playBtn.innerHTML = '<span style="font-size:8px">!</span>'; setTimeout(function () { playBtn.innerHTML = ICON_PLAY; }, 1500); });
       audio.addEventListener('loadedmetadata', function () {
         strip.classList.add('armed');
       });
@@ -3377,7 +3678,7 @@
         playBtn.innerHTML = '<span style="font-size:8px">!</span>';
         setTimeout(function () { playBtn.innerHTML = ICON_PLAY; }, 1500);
       });
-      audio.play().catch(function () { stopModalAudio(); });
+      // playback is kicked off in the authedAudioUrl().then above
       return;
     }
 

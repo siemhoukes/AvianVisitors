@@ -1,0 +1,7 @@
+# Files executed on the Linux Pi MUST stay LF — a CRLF shebang/line breaks bash,
+# and CRLF trips PHP/Python/cron. Enforce LF in the repo regardless of the OS
+# a commit is authored on (this project is developed on Windows, deployed on Pi).
+*.sh   text eol=lf
+*.php  text eol=lf
+*.py   text eol=lf
+*.cron text eol=lf

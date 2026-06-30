@@ -22,6 +22,23 @@ if [ -f /etc/caddy/Caddyfile ];then
 fi
 if ! [ -z ${CADDY_PWD} ];then
 HASHWORD=$(caddy hash-password --plaintext ${CADDY_PWD})
+# AvianVisitors two-tier auth. CADDY_PWD = admin (user "birdnet"): everything
+# EXCEPT the live mic. LIVE_PWD = pensionado (user "pensionado"): everything
+# INCLUDING the live mic. A basicauth block lists the users allowed on that
+# path; ${AUTH_BOTH} = both tiers, ${AUTH_LIVE} = pensionado only (the live
+# stream). If LIVE_PWD is unset we degrade to a single admin tier (admin also
+# gets /stream) so an install without the live tier still works.
+# NB: the frontend sends the Authorization header explicitly via fetch on every
+# gated request (incl. the live stream + recordings, via fetch->blob/MediaSource),
+# so these 401s never reach a bare <audio>/navigation -> the browser's native
+# login popup never fires. Auth stays at Caddy; the in-app drawer is the only login.
+AUTH_BOTH="    birdnet ${HASHWORD}"
+AUTH_LIVE="    birdnet ${HASHWORD}"
+if ! [ -z ${LIVE_PWD} ];then
+  LIVEHASH=$(caddy hash-password --plaintext ${LIVE_PWD})
+  AUTH_BOTH=$(printf '    birdnet %s\n    pensionado %s' "${HASHWORD}" "${LIVEHASH}")
+  AUTH_LIVE=$(printf '    pensionado %s' "${LIVEHASH}")
+fi
 cat << EOF > /etc/caddy/Caddyfile
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
@@ -37,31 +54,31 @@ http:// ${BIRDNETPI_URL} {
     file_server browse
   }
   basicauth /views.php?view=File* {
-    birdnet ${HASHWORD}
+${AUTH_BOTH}
   }
   basicauth /Processed* {
-    birdnet ${HASHWORD}
+${AUTH_BOTH}
   }
   basicauth /scripts* {
-    birdnet ${HASHWORD}
+${AUTH_BOTH}
   }
   basicauth /stream {
-    birdnet ${HASHWORD}
+${AUTH_LIVE}
   }
   # AvianVisitors: keep recorded mic audio + the map's write endpoint private
   # too (live /stream above is only half the story). Collage/atlas/map/stats
   # read APIs stay open; spectrogram images stay open so the UI still renders.
   basicauth /avian/api/recording.php* {
-    birdnet ${HASHWORD}
+${AUTH_BOTH}
   }
   basicauth /avian/api/location-edit.php* {
-    birdnet ${HASHWORD}
+${AUTH_BOTH}
   }
   basicauth /phpsysinfo* {
-    birdnet ${HASHWORD}
+${AUTH_BOTH}
   }
   basicauth /terminal* {
-    birdnet ${HASHWORD}
+${AUTH_BOTH}
   }
   # AvianVisitors: gate the whole menu/settings drawer. menu.php returns the
   # drawer contents, so 401ing it (no creds) keeps the lock screen up until the
@@ -69,14 +86,22 @@ http:// ${BIRDNETPI_URL} {
   # audio, tools) without it. This is what the frontend's lock-screen flow
   # expects on a password-protected deploy.
   basicauth /avian/api/menu.php* {
-    birdnet ${HASHWORD}
+${AUTH_BOTH}
+  }
+  # AvianVisitors: the reisschema (manual location plan) + place search both
+  # read/write where the unit thinks it is, so gate them like the rest.
+  basicauth /avian/api/location-schedule.php* {
+${AUTH_BOTH}
+  }
+  basicauth /avian/api/geocode.php* {
+${AUTH_BOTH}
   }
   # AvianVisitors: the kaart/map reveals where you are + your travel stops, so
   # gate its data (locations/mapconfig/journey actions on birdnet-api.php). The
   # collage/atlas/stats (recent/species/stats actions) stay open for the family.
   @mapdata query action=locations action=journey
   basicauth @mapdata {
-    birdnet ${HASHWORD}
+${AUTH_BOTH}
   }
   # SmallTV window setting: anyone may read it (GET), only authed users set it.
   @tvconfigwrite {
@@ -84,7 +109,7 @@ http:// ${BIRDNETPI_URL} {
     path /avian/api/smalltv-config.php*
   }
   basicauth @tvconfigwrite {
-    birdnet ${HASHWORD}
+${AUTH_BOTH}
   }
   reverse_proxy /stream localhost:8000
   # AvianVisitors overlay drops an index.html alongside BirdNET-Pi's
