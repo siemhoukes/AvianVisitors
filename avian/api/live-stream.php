@@ -18,9 +18,17 @@ $CONF_PATH = is_readable($SYSTEM_CONF_PATH) ? $SYSTEM_CONF_PATH : $LOCAL_CONF_PA
 
 function live_conf(string $path): array {
     if (!is_readable($path)) return [];
-    $source = preg_replace("~^#+.*$~m", "", (string)file_get_contents($path));
-    $parsed = parse_ini_string((string)$source);
-    return is_array($parsed) ? $parsed : [];
+    $out = [];
+    foreach (file($path, FILE_IGNORE_NEW_LINES) as $line) {
+        if ($line === '' || $line[0] === '#') continue;
+        if (!preg_match('/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/i', $line, $m)) continue;
+        $val = trim($m[2]);
+        if (strlen($val) >= 2 && $val[0] === '"' && substr($val, -1) === '"') {
+            $val = substr($val, 1, -1);
+        }
+        $out[$m[1]] = $val;
+    }
+    return $out;
 }
 
 function live_auth_header(): string {
