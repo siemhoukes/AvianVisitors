@@ -1816,67 +1816,111 @@
     var spectroEl = document.getElementById('liveSpectro');
     var statusEl = document.getElementById('liveStatus');
     var liveEl = null, audioCtx = null, srcNode = null, analyser = null;
-    var specRaf = null, liveAbort = null;
+    var specRaf = null, liveAbort = null, liveObjectUrl = null;
 
     function setStatus(msg, isErr) {
       statusEl.textContent = msg || '';
       statusEl.className = 'live-status' + (isErr ? ' err' : '');
     }
     function startAudio() {
-      // The live stream is pensionado-gated. A bare <audio src="/stream"> can't
-      // send the Authorization header and browsers don't reliably replay cached
-      // Basic creds to media elements - so we fetch the stream OURSELVES (where
-      // we can set the header) and feed it to the element:
-      //   * audio/mpeg (real icecast) -> stream chunks through a MediaSource so
-      //     playback stays live (the fetch body never ends).
-      //   * anything else (e.g. the dev mock's WAV) -> play the bytes as a blob.
-      // Resolves on the first "playing" event; icecast can take 1-10s to warm
-      // up, so no timeout race.
+      // The live stream is pensionado-gated. Native <audio src="/stream"> is
+      // the most stable MP3 livestream path once the login flow has primed the
+      // browser's Basic-auth cache, but not every browser reuses that cache
+      // reliably. Probe with an authenticated fetch first, try native playback,
+      // then fall back to authenticated MediaSource streaming when needed.
       return new Promise(function (resolve, reject) {
-        var settled = false;
-        function ok()  { if (!settled) { settled = true; resolve(); } }
-        function bad(e){ if (!settled) { settled = true; reject(e); } }
+        var settled = false, triedMse = false, watchdog = null;
+        function clearWatchdog() {
+          if (watchdog) { clearTimeout(watchdog); watchdog = null; }
+        }
+        function ok()  { if (!settled) { settled = true; clearWatchdog(); resolve(); } }
+        function bad(e){ if (!settled) { settled = true; clearWatchdog(); reject(e); } }
         liveEl = new Audio();
+        liveEl.preload = 'none';
         liveEl.addEventListener('playing', ok);
-        liveEl.addEventListener('error', function () { bad(new Error('stream error - check /#admin=system')); });
+        liveEl.addEventListener('error', function () {
+          if (!triedMse) startMse(new Error('native stream error'));
+        });
         audioClaim(stopAudio);   // stop any card / modal-recording audio
+
+        function resetMediaElement() {
+          try { liveEl.pause(); } catch (e) {}
+          liveEl.removeAttribute('src');
+          try { liveEl.load(); } catch (e) {}
+          if (liveObjectUrl) { try { URL.revokeObjectURL(liveObjectUrl); } catch (e) {} liveObjectUrl = null; }
+        }
+
+        function playNative() {
+          setStatus('audio starten...');
+          liveEl.src = '/stream?t=' + Date.now();
+          var p = liveEl.play();
+          if (p && p.catch) p.catch(startMse);
+          watchdog = setTimeout(function () {
+            startMse(new Error('native stream timed out'));
+          }, 10000);
+        }
+
+        function startMse(reason) {
+          if (settled || triedMse) {
+            if (!settled) bad(reason || new Error('stream unavailable'));
+            return;
+          }
+          triedMse = true;
+          clearWatchdog();
+          resetMediaElement();
+          setStatus('bufferen...');
+          liveAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+          fetch('/stream?t=' + Date.now(), {
+            headers: authHeaders(), cache: 'no-store',
+            signal: liveAbort ? liveAbort.signal : undefined
+          }).then(function (resp) {
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            var ctype = (resp.headers.get('Content-Type') || '').toLowerCase();
+            var canMSE = window.MediaSource && ctype.indexOf('mpeg') !== -1
+              && MediaSource.isTypeSupported('audio/mpeg') && resp.body && resp.body.getReader;
+            if (canMSE) {
+              var ms = new MediaSource();
+              liveObjectUrl = URL.createObjectURL(ms);
+              liveEl.src = liveObjectUrl;
+              ms.addEventListener('sourceopen', function () {
+                var sb;
+                try { sb = ms.addSourceBuffer('audio/mpeg'); } catch (e) { bad(e); return; }
+                var reader = resp.body.getReader();
+                var queue = [];
+                function flush() {
+                  if (sb.updating || !queue.length) return;
+                  try { sb.appendBuffer(queue.shift()); } catch (e) {}
+                }
+                sb.addEventListener('updateend', flush);
+                (function pump() {
+                  reader.read().then(function (r) {
+                    if (r.done) { try { if (!sb.updating) ms.endOfStream(); } catch (e) {} return; }
+                    queue.push(r.value); flush(); pump();
+                  }).catch(function () {});
+                })();
+              });
+              liveEl.play().catch(bad);
+            } else if (ctype.indexOf('mpeg') === -1) {
+              return resp.blob().then(function (b) {
+                liveObjectUrl = URL.createObjectURL(b);
+                liveEl.src = liveObjectUrl;
+                liveEl.play().catch(bad);
+              });
+            } else {
+              throw new Error('browser ondersteunt deze livestream niet');
+            }
+          }).catch(bad);
+        }
+
         liveAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-        fetch('/stream?t=' + Date.now(), {
+        fetch('/stream?probe=' + Date.now(), {
           headers: authHeaders(), cache: 'no-store',
           signal: liveAbort ? liveAbort.signal : undefined
         }).then(function (resp) {
           if (!resp.ok) throw new Error('HTTP ' + resp.status);
-          var ctype = (resp.headers.get('Content-Type') || '').toLowerCase();
-          var canMSE = window.MediaSource && ctype.indexOf('mpeg') !== -1
-            && MediaSource.isTypeSupported('audio/mpeg') && resp.body && resp.body.getReader;
-          if (canMSE) {
-            var ms = new MediaSource();
-            liveEl.src = URL.createObjectURL(ms);
-            ms.addEventListener('sourceopen', function () {
-              var sb;
-              try { sb = ms.addSourceBuffer('audio/mpeg'); } catch (e) { bad(e); return; }
-              var reader = resp.body.getReader();
-              var queue = [];
-              function flush() {
-                if (sb.updating || !queue.length) return;
-                try { sb.appendBuffer(queue.shift()); } catch (e) {}
-              }
-              sb.addEventListener('updateend', flush);
-              (function pump() {
-                reader.read().then(function (r) {
-                  if (r.done) { try { if (!sb.updating) ms.endOfStream(); } catch (e) {} return; }
-                  queue.push(r.value); flush(); pump();
-                }).catch(function () {});
-              })();
-            });
-            liveEl.play().catch(bad);
-          } else {
-            return resp.blob().then(function (b) {
-              liveEl.src = URL.createObjectURL(b);
-              liveEl.play().catch(bad);
-            });
-          }
-        }).catch(bad);
+          if (liveAbort) { try { liveAbort.abort(); } catch (e) {} liveAbort = null; }
+          playNative();
+        }).catch(startMse);
       });
     }
     function stopAudio() {
@@ -1884,6 +1928,7 @@
       if (specRaf) { cancelAnimationFrame(specRaf); specRaf = null; }
       if (liveAbort) { try { liveAbort.abort(); } catch (e) {} liveAbort = null; }
       if (liveEl) { try { liveEl.pause(); } catch (e) {} liveEl.src = ''; liveEl = null; }
+      if (liveObjectUrl) { try { URL.revokeObjectURL(liveObjectUrl); } catch (e) {} liveObjectUrl = null; }
       if (srcNode) { try { srcNode.disconnect(); } catch (e) {} srcNode = null; }
       if (analyser) { try { analyser.disconnect(); } catch (e) {} analyser = null; }
       liveBox.setAttribute('data-on', 'false');
