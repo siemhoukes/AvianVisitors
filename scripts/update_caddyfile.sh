@@ -104,6 +104,14 @@ ${AUTH_BOTH}
   basicauth /avian/api/birdnet-status.php* {
 ${AUTH_BOTH}
   }
+  # AvianVisitors: config.php reads AND writes the live birdnet.conf (confidence,
+  # lat/long, site name, purge policy...). The settings drawer is the only caller
+  # and it sends creds via fetch, so gate it - otherwise #admin=settings shows
+  # (and could overwrite) the whole config to anyone. Its built-in check only
+  # looked for a *present* Authorization header; this enforces the password.
+  basicauth /avian/api/config.php* {
+${AUTH_BOTH}
+  }
   # AvianVisitors: gate the whole menu/settings drawer. menu.php returns the
   # drawer contents, so 401ing it (no creds) keeps the lock screen up until the
   # password is entered - there's no way to render the menu (settings, live

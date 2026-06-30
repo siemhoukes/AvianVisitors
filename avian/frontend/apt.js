@@ -3086,6 +3086,11 @@
     return fetch(url, opts);
   }
   function openAdmin(section) {
+    // Admin data is gated server-side (config.php / birdnet-status.php 401
+    // without valid creds), but the panel is reachable via a #admin= hash, so
+    // guard the UI too: an anonymous visitor (no stored credential) gets the
+    // login drawer instead of an open - empty but suggestive - settings screen.
+    if (!AV_AUTH) { try { if (location.hash) location.hash = ''; } catch (e) {} requireLogin(); return; }
     document.body.classList.add('admin-on');
     adminEl.setAttribute('aria-hidden', 'false');
     adminTitle.textContent = ADMIN_TITLES[section] || section;
