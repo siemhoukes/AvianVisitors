@@ -1823,18 +1823,14 @@
       statusEl.className = 'live-status' + (isErr ? ' err' : '');
     }
     function startAudio() {
-      // The live stream is pensionado-gated. Native <audio src="/stream"> is
-      // the most stable MP3 livestream path once the login flow has primed the
-      // browser's Basic-auth cache, but not every browser reuses that cache
-      // reliably. Probe with an authenticated fetch first, try native playback,
-      // then fall back to authenticated MediaSource streaming when needed.
+      // The live stream is pensionado-gated. Never point a media element
+      // directly at /stream: browsers may show their own Basic Auth popup.
+      // Instead, fetch with the app's stored Authorization header and feed the
+      // bytes to the player through MediaSource.
       return new Promise(function (resolve, reject) {
-        var settled = false, triedMse = false, watchdog = null;
-        function clearWatchdog() {
-          if (watchdog) { clearTimeout(watchdog); watchdog = null; }
-        }
-        function ok()  { if (!settled) { settled = true; clearWatchdog(); resolve(); } }
-        function bad(e){ if (!settled) { settled = true; clearWatchdog(); reject(e); } }
+        var settled = false, triedMse = false;
+        function ok()  { if (!settled) { settled = true; resolve(); } }
+        function bad(e){ if (!settled) { settled = true; reject(e); } }
         liveEl = new Audio();
         liveEl.preload = 'none';
         liveEl.addEventListener('playing', ok);
@@ -1850,23 +1846,12 @@
           if (liveObjectUrl) { try { URL.revokeObjectURL(liveObjectUrl); } catch (e) {} liveObjectUrl = null; }
         }
 
-        function playNative() {
-          setStatus('audio starten...');
-          liveEl.src = '/stream?t=' + Date.now();
-          var p = liveEl.play();
-          if (p && p.catch) p.catch(startMse);
-          watchdog = setTimeout(function () {
-            startMse(new Error('native stream timed out'));
-          }, 10000);
-        }
-
         function startMse(reason) {
           if (settled || triedMse) {
             if (!settled) bad(reason || new Error('stream unavailable'));
             return;
           }
           triedMse = true;
-          clearWatchdog();
           resetMediaElement();
           setStatus('bufferen...');
           liveAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -1912,15 +1897,7 @@
           }).catch(bad);
         }
 
-        liveAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-        fetch('/stream?probe=' + Date.now(), {
-          headers: authHeaders(), cache: 'no-store',
-          signal: liveAbort ? liveAbort.signal : undefined
-        }).then(function (resp) {
-          if (!resp.ok) throw new Error('HTTP ' + resp.status);
-          if (liveAbort) { try { liveAbort.abort(); } catch (e) {} liveAbort = null; }
-          playNative();
-        }).catch(startMse);
+        startMse();
       });
     }
     function stopAudio() {
