@@ -177,6 +177,11 @@ RECS_DIR=$HOME/BirdSongs
 
 REC_CARD=default
 
+## Optional high-pass filter for noisy power environments. Set to 0 to disable.
+## 200-300 Hz removes mains hum/rumble while preserving most bird calls.
+
+AUDIO_HIGHPASS_FREQ=0
+
 ## PROCESSED is the directory where the formerly 'Analyzed' files are moved
 ## after extractions have been made from them. This includes both WAVE and
 ## BirdNET.selection.txt files.

@@ -4,7 +4,7 @@ source /etc/birdnet/birdnet.conf
 
 loop_ffmpeg(){
   while true;do
-    if ! ffmpeg -hide_banner -loglevel $LOGGING_LEVEL -nostdin ${1} -i ${2} -vn -map a:0 -acodec pcm_s16le -ac 2 -ar 48000 -f segment -segment_format wav -segment_time ${RECORDING_LENGTH} -strftime 1 ${RECS_DIR}/StreamData/%F-birdnet-RTSP_${3}-%H:%M:%S.wav
+    if ! ffmpeg -hide_banner -loglevel $LOGGING_LEVEL -nostdin ${1} -i ${2} -vn -map a:0 "${AUDIO_FILTER_OPT[@]}" -acodec pcm_s16le -ac 2 -ar 48000 -f segment -segment_format wav -segment_time ${RECORDING_LENGTH} -strftime 1 ${RECS_DIR}/StreamData/%F-birdnet-RTSP_${3}-%H:%M:%S.wav
     then
       sleep 1
     fi
@@ -23,6 +23,10 @@ fi
 
 [ -z $RECORDING_LENGTH ] && RECORDING_LENGTH=15
 [ -d $RECS_DIR/StreamData ] || mkdir -p $RECS_DIR/StreamData
+AUDIO_FILTER_OPT=()
+if [[ "${AUDIO_HIGHPASS_FREQ:-0}" =~ ^[0-9]+$ ]] && [ "${AUDIO_HIGHPASS_FREQ:-0}" -gt 0 ]; then
+  AUDIO_FILTER_OPT=(-af "highpass=f=${AUDIO_HIGHPASS_FREQ}")
+fi
 
 if [ -n "${RTSP_STREAM}" ];then
   # Explode the RTSP steam setting into an array so we can count the number we have
@@ -55,7 +59,12 @@ else
   if pgrep arecord &> /dev/null ;then
     echo "Recording"
   else
-    if [ -z ${REC_CARD} ];then
+    if [ "${#AUDIO_FILTER_OPT[@]}" -gt 0 ]; then
+      ffmpeg -hide_banner -loglevel $LOGGING_LEVEL -nostdin -f alsa -ac ${CHANNELS} -i "${REC_CARD:-default}" \
+        "${AUDIO_FILTER_OPT[@]}" -acodec pcm_s16le -ac ${CHANNELS} -ar 48000 \
+        -f segment -segment_format wav -segment_time ${RECORDING_LENGTH} -strftime 1 \
+        ${RECS_DIR}/StreamData/%F-birdnet-%H:%M:%S.wav
+    elif [ -z ${REC_CARD} ];then
       arecord -f S16_LE -c${CHANNELS} -r48000 -t wav --max-file-time ${RECORDING_LENGTH}\
 	      	      	       --use-strftime ${RECS_DIR}/StreamData/%F-birdnet-%H:%M:%S.wav
     else
