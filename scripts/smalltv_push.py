@@ -25,6 +25,7 @@ import concurrent.futures
 import io
 import json
 import math
+import os
 import re
 import socket
 import sqlite3
@@ -237,19 +238,33 @@ def compose_collage(species):
     return frame
 
 
+def _connect_ro(db_path):
+    """Read-only open: this script must never take a write lock (or create a
+    stray db) while birdnet_log is inserting detections."""
+    c = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    c.row_factory = sqlite3.Row
+    return c
+
+
 def recent_species(db_path, hours, limit):
-    c = sqlite3.connect(db_path); c.row_factory = sqlite3.Row
+    c = _connect_ro(db_path)
+    # The julianday filter is exact but unindexable; the Date prefilter is a
+    # superset that rides the (Date, Time) index so the scan stays bounded to
+    # the window instead of the whole history (matters on a Pi 3B+ where this
+    # runs in a 30 s loop).
+    days = int(hours) // 24 + 2
     rs = c.execute(
         "SELECT Sci_Name sci, COUNT(*) n FROM detections "
-        "WHERE (julianday('now','localtime')-julianday(Date||' '||Time))*24 <= ? "
-        "GROUP BY Sci_Name ORDER BY n DESC LIMIT ?", (hours, limit)).fetchall()
+        "WHERE Date >= date('now','localtime',?) "
+        "AND (julianday('now','localtime')-julianday(Date||' '||Time))*24 <= ? "
+        "GROUP BY Sci_Name ORDER BY n DESC LIMIT ?", (f"-{days} day", hours, limit)).fetchall()
     c.close()
     return [dict(r) for r in rs]
 
 
 def species_at_location(db_path, lat, lon, limit, tol=0.02):
     """All species ever heard at (lat,lon) - the 'deze plek' window, no time cap."""
-    c = sqlite3.connect(db_path); c.row_factory = sqlite3.Row
+    c = _connect_ro(db_path)
     rs = c.execute(
         "SELECT Sci_Name sci, COUNT(*) n FROM detections "
         "WHERE abs(Lat-?)<? AND abs(Lon-?)<? GROUP BY Sci_Name ORDER BY n DESC LIMIT ?",
@@ -416,14 +431,38 @@ def main():
     if args.loop:
         host = args.host
         last_set = None; last_sig = None; last_push = 0.0
+        last_state = None       # (db mtime, conf mtime) at the last evaluation
+        pending = False         # counts changed but the push was throttled
+        misses = 0              # consecutive failed discoveries -> back off
+
+        def _mtime(p):
+            try:
+                return os.path.getmtime(p)
+            except OSError:
+                return None
+
         while True:
             if not host:
                 host = discover_host(args.cache)
                 if not host:
-                    print("[smalltv] no device found on this network; retrying"); time.sleep(min(args.loop, 60)); continue
+                    # No device on this network (e.g. the SmallTV stayed in the
+                    # caravan): back off exponentially instead of sweeping the
+                    # /24 every cycle forever. Resets as soon as one is found.
+                    misses += 1
+                    delay = min(900, max(args.loop, 30) * (2 ** min(misses, 5)))
+                    print(f"[smalltv] no device found on this network; retrying in {delay:.0f}s")
+                    time.sleep(delay); continue
+                misses = 0
                 print(f"[smalltv] discovered SmallTV at {host}")
-                last_set = None; last_sig = None   # force a push after (re)connecting
+                last_set = None; last_sig = None; last_state = None   # force a push after (re)connecting
             try:
+                # Cheap idle path: if neither birds.db nor birdnet.conf changed
+                # since the last evaluation (and no throttled refresh is owed),
+                # skip the query entirely - two stat() calls instead of a table
+                # scan every 30 s.
+                state = (_mtime(args.db), _mtime("/etc/birdnet/birdnet.conf"))
+                if state == last_state and not pending:
+                    time.sleep(args.loop); continue
                 # window is read fresh each cycle from birdnet.conf, so a change
                 # in the menu (AV_SMALLTV_WINDOW) takes effect within one loop.
                 sp = species_for_window(args.db, _conf_get("AV_SMALLTV_WINDOW", "24h"), args.limit)
@@ -440,6 +479,12 @@ def main():
                     compose_and_upload(_norm(host), sp)
                     print(f"[smalltv] pushed {len(sp)} birds ({'new species' if set_changed else 'count refresh'}) -> {host}")
                     last_set = cur_set; last_sig = sig; last_push = now
+                    pending = False
+                else:
+                    # Remember a throttled count-only change so the idle path
+                    # doesn't skip the deferred refresh once count_refresh expires.
+                    pending = bool(sp) and count_changed
+                last_state = state
             except (urllib.error.URLError, OSError) as e:
                 print(f"[smalltv] push failed ({e}); will re-discover"); host = None
             except Exception as e:
