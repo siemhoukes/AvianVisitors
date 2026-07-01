@@ -39,6 +39,41 @@ if (!file_exists($DB_PATH)) {
     exit;
 }
 
+$action = $_GET['action'] ?? 'stats';
+
+// ---- Response cache ----
+// The collage frontend polls five actions every 30 s per open tab, and every
+// request below materialises the "moments" temp table with a window function
+// over the whole detections table - noticeable CPU on a Pi 3B+, multiplied by
+// each viewer on a public deploy. Cache the JSON on disk, keyed on the action,
+// its parameters, and the mtimes of birds.db + birdnet.conf: a new detection
+// or settings change invalidates instantly, and identical polls (or extra
+// viewers) in between are served without touching SQLite. The short TTL bounds
+// the drift of 'now'-relative windows (e.g. the last-hour stat) while the DB
+// is quiet. Set AV_API_CACHE_SEC=0 in birdnet.conf to disable.
+$AV_CACHEABLE = ['stats', 'lifelist', 'recent', 'species', 'timeseries', 'firstseen', 'locations', 'journey'];
+$avCacheTtl = max(0, min(3600, (int)av_conf_value('AV_API_CACHE_SEC', '120')));
+$avCacheFile = null;
+if ($avCacheTtl > 0 && in_array($action, $AV_CACHEABLE, true)) {
+    $sig = [$action];
+    foreach (['hours', 'from', 'to', 'sci', 'days', 'limit'] as $p) $sig[] = (string)($_GET[$p] ?? '');
+    $sig[] = (string)@filemtime($DB_PATH);
+    foreach (['/etc/birdnet/birdnet.conf', dirname(__DIR__, 2) . '/birdnet.conf'] as $cp) {
+        $sig[] = (string)@filemtime($cp);
+    }
+    $avCacheDir = sys_get_temp_dir() . '/avian-api-cache';
+    if (!is_dir($avCacheDir)) @mkdir($avCacheDir, 0700, true);
+    $avCacheFile = $avCacheDir . '/' . md5(implode("\x1f", $sig)) . '.json';
+    if (is_file($avCacheFile) && (time() - (int)@filemtime($avCacheFile)) < $avCacheTtl) {
+        $hit = @file_get_contents($avCacheFile);
+        if ($hit !== false && $hit !== '') {
+            echo $hit;
+            exit;
+        }
+    }
+    ob_start();
+}
+
 try {
     $db = new SQLite3($DB_PATH, SQLITE3_OPEN_READONLY);
     $db->busyTimeout(2000);
@@ -94,6 +129,39 @@ $groupOn = !in_array(
 $gapSec = (int)av_conf_value('AV_GROUP_GAP_SEC', (string)MOMENT_GAP_DEFAULT);
 $gapSec = max(0, min(3600, $gapSec));
 
+// Narrow the moments build to the rows the current action can actually use.
+// Windowed actions (recent / timeseries) and the single-species detail never
+// look outside their slice, so feeding the whole history into the window
+// function is wasted work - the dominant per-request cost on a Pi 3B+ once
+// the table has a season of detections in it. The one-day margin before a
+// window keeps boundary moments intact: the grouping gap is clamped to
+// <= 3600 s, so context from at most an hour before the window can matter.
+// All-time actions (stats, lifelist, firstseen, journey, locations) keep the
+// full scan.
+function av_moments_filter(string $action): string {
+    if ($action === 'species') {
+        $sci = (string)($_GET['sci'] ?? '');
+        if ($sci !== '') return "WHERE Sci_Name = '" . SQLite3::escapeString($sci) . "'";
+    } elseif ($action === 'recent') {
+        $from = (string)($_GET['from'] ?? '');
+        if ($from !== '' || (string)($_GET['to'] ?? '') !== '') {
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+                return "WHERE Date >= date('" . $from . "', '-1 day')";
+            }
+            return '';   // open-ended range - keep the full scan
+        }
+        $hours = max(1, min(1000000, (int)($_GET['hours'] ?? 24)));
+        if ($hours >= 1000000) return '';   // the ALL window
+        return "WHERE Date >= date('now', 'localtime', '-" . (intdiv($hours, 24) + 2) . " day')";
+    } elseif ($action === 'timeseries') {
+        $days = max(1, min(90, (int)($_GET['days'] ?? 30)));
+        // by_hour looks back 30 days regardless of the daily window.
+        return "WHERE Date >= date('now', 'localtime', '-" . (max($days, 30) + 1) . " day')";
+    }
+    return '';
+}
+$momentsFilter = av_moments_filter($action);
+
 // Materialise moment ids ONCE per request into the connection's (writable)
 // temp schema - works despite the READONLY main db, and the multi-query stats
 // endpoint doesn't re-sessionise each time. `moment_id` runs per species, so a
@@ -111,7 +179,7 @@ if ($groupOn) {
     . "              - LAG(julianday(Date || ' ' || Time)) "
     . "                  OVER (PARTITION BY Sci_Name ORDER BY julianday(Date || ' ' || Time))) "
     . "              * 86400.0 <= " . $gapSec . " THEN 0 ELSE 1 END AS new_moment "
-    . "  FROM detections) "
+    . "  FROM detections " . $momentsFilter . ") "
     . "SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, "
     . "  SUM(new_moment) OVER (PARTITION BY Sci_Name ORDER BY jd ROWS UNBOUNDED PRECEDING) AS moment_id "
     . "FROM gap";
@@ -122,7 +190,8 @@ if ($groupOn) {
 if ($built === false) {
     $db->exec(
       "CREATE TEMP TABLE moments AS "
-    . "SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, rowid AS moment_id FROM detections"
+    . "SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, rowid AS moment_id "
+    . "FROM detections " . $momentsFilter
     );
 }
 
@@ -211,8 +280,6 @@ function schedule_for_detection(array $schedule, string $seenAt): ?array {
     }
     return $active;
 }
-
-$action = $_GET['action'] ?? 'stats';
 
 switch ($action) {
 
@@ -393,4 +460,30 @@ switch ($action) {
     default:
         http_response_code(404);
         echo json_encode(['error' => 'unknown action']);
+}
+
+// ---- Cache store (see the cache check above the DB open) ----
+if ($avCacheFile !== null) {
+    $body = (string)ob_get_contents();
+    ob_end_flush();
+    // http_response_code() reports false when nothing set one explicitly
+    // (e.g. under CLI); that means the default 200, so treat it as such.
+    $avRespCode = http_response_code();
+    if ($body !== '' && ($avRespCode === 200 || $avRespCode === false)) {
+        // Bound the key space: parameters are attacker-influencable (?hours=N),
+        // so refuse to grow the dir without limit; stale keys age out via GC.
+        $entries = @scandir($avCacheDir);
+        if (is_array($entries) && count($entries) < 300) {
+            $tmp = $avCacheFile . '.tmp.' . getmypid();
+            if (@file_put_contents($tmp, $body) !== false) @rename($tmp, $avCacheFile);
+        }
+        // Occasional GC: drop entries invalidated hours ago.
+        if (mt_rand(0, 49) === 0 && is_array($entries)) {
+            foreach ($entries as $f) {
+                if (substr($f, -5) !== '.json') continue;
+                $p = $avCacheDir . '/' . $f;
+                if (time() - (int)@filemtime($p) > 86400) @unlink($p);
+            }
+        }
+    }
 }
