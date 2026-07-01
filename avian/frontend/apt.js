@@ -2083,6 +2083,8 @@
           + settingsSlider('SENSITIVITY', 'Gevoeligheid',            'gevoeligheid van de analyser',           v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
           + settingsSlider('OVERLAP',     'Overlap',                 'seconden geanalyseerd per ronde',        v.OVERLAP,     0,   2.5,  0.1,  1)
           + settingsSlider('AUDIO_HIGHPASS_FREQ', 'Bromfilter',       'hoogdoorlaatfilter in Hz (0 = uit)',     v.AUDIO_HIGHPASS_FREQ, 0, 1000, 50, 0)
+          + settingsToggle('AV_GROUP_ENABLED', 'Waarnemingen groeperen', 'herhaalde tellingen samenvoegen tot momenten', v.AV_GROUP_ENABLED)
+          + settingsSlider('AV_GROUP_GAP_SEC', 'Zelfde bezoek binnen (sec)', 'stilte-pauze voor een nieuw moment', v.AV_GROUP_GAP_SEC, 5, 120, 5, 0)
           + settingsSegmented('FULL_DISK', 'Bij volle schijf', '', v.FULL_DISK, [
               { v: 'keep',  label: 'behouden' },
               { v: 'purge', label: 'wissen' },
@@ -3146,6 +3148,8 @@
           + settingsSlider('SENSITIVITY', 'Gevoeligheid',            'gevoeligheid van de analyser',           v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
           + settingsSlider('OVERLAP',     'Overlap',                 'seconden geanalyseerd per ronde',        v.OVERLAP,     0,   2.5,  0.1,  1)
           + settingsSlider('AUDIO_HIGHPASS_FREQ', 'Bromfilter',       'hoogdoorlaatfilter in Hz (0 = uit)',     v.AUDIO_HIGHPASS_FREQ, 0, 1000, 50, 0)
+          + settingsToggle('AV_GROUP_ENABLED', 'Waarnemingen groeperen', 'herhaalde tellingen samenvoegen tot momenten', v.AV_GROUP_ENABLED)
+          + settingsSlider('AV_GROUP_GAP_SEC', 'Zelfde bezoek binnen (sec)', 'stilte-pauze voor een nieuw moment', v.AV_GROUP_GAP_SEC, 5, 120, 5, 0)
           + settingsSegmented('FULL_DISK', 'Bij volle schijf', '', v.FULL_DISK, [
               { v: 'keep',  label: 'behouden' },
               { v: 'purge', label: 'wissen' },

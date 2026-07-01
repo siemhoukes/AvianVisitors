@@ -45,6 +45,12 @@ $ALLOWED = [
     'LATITUDE'           => ['type' => 'float', 'min' => -90,  'max' => 90, 'restart' => true, 'restart_services' => ['birdnet_analysis']],
     'LONGITUDE'          => ['type' => 'float', 'min' => -180, 'max' => 180, 'restart' => true, 'restart_services' => ['birdnet_analysis']],
     'SITE_NAME'          => ['type' => 'string', 'maxlen' => 60],
+    // AvianVisitors display grouping ("moments"). Read at query time by
+    // birdnet-api.php, so these need no service restart. 'default' is served
+    // when the key is absent from birdnet.conf (fresh installs), and must
+    // stay in sync with the fallbacks in birdnet-api.php.
+    'AV_GROUP_ENABLED'   => ['type' => 'bool', 'default' => true],
+    'AV_GROUP_GAP_SEC'   => ['type' => 'int',  'min' => 5, 'max' => 120, 'default' => 15],
 ];
 
 function read_conf(string $path): array {
@@ -127,10 +133,16 @@ if ($method === 'GET') {
     $conf = read_conf($CONF_PATH);
     $out = [];
     foreach ($ALLOWED as $k => $spec) {
-        if (!array_key_exists($k, $conf)) continue;
-        $v = $conf[$k];
-        if ($spec['type'] === 'float') $v = (float)$v;
-        elseif ($spec['type'] === 'int') $v = (int)$v;
+        if (array_key_exists($k, $conf)) {
+            $v = $conf[$k];
+            if ($spec['type'] === 'float') $v = (float)$v;
+            elseif ($spec['type'] === 'int') $v = (int)$v;
+            elseif ($spec['type'] === 'bool') $v = !in_array(strtolower(trim((string)$v)), ['false', '0', 'no', 'off', ''], true);
+        } elseif (array_key_exists('default', $spec)) {
+            $v = $spec['default'];   // key not yet in birdnet.conf - serve the default
+        } else {
+            continue;
+        }
         $out[$k] = $v;
     }
     echo json_encode([
@@ -162,6 +174,9 @@ if ($method === 'POST') {
         } elseif ($spec['type'] === 'int') {
             $v = (int)$v;
             if ($v < ($spec['min'] ?? -PHP_INT_MAX) || $v > ($spec['max'] ?? PHP_INT_MAX)) { $errors[$k] = 'out of range'; continue; }
+        } elseif ($spec['type'] === 'bool') {
+            // Stored as bare true/false so birdnet.conf stays shell-sourceable.
+            $v = ($v === true || $v === 1 || $v === '1' || $v === 'true') ? 'true' : 'false';
         } elseif ($spec['type'] === 'enum') {
             if (!in_array($v, $spec['values'], true)) { $errors[$k] = 'invalid value'; continue; }
         } elseif ($spec['type'] === 'string') {
