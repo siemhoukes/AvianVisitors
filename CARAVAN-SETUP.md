@@ -224,7 +224,8 @@ join the same network too — see §4e.)
   marginal car-USB port.
 - **Memory/swap (3B+, 1 GB):** the analyzer + push run comfortably (load ~0.5, push peaks <40 MB),
   but headroom is thin. Keep a persistent swapfile: `/swapfile` (2 GB) in `/etc/fstab` alongside
-  zram. The installer's dphys step **fails on Debian Trixie** (zram, no dphys) — add it by hand:
+  zram. The installer now handles Debian Trixie itself (no dphys there → it creates the 2 GB
+  `/swapfile` + fstab entry automatically); on an already-installed unit without one, add it by hand:
   `sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab`.
 - **Web UI at `/`:** the installer now regenerates the Caddyfile so `http://birdnet.local/` serves
   the AvianVisitors collage (not stock BirdNET-Pi). If you ever see the stock page, run

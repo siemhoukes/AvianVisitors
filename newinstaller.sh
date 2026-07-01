@@ -47,10 +47,23 @@ fi
 # per https://github.com/mcguirepr89/BirdNET-Pi/wiki/RPi0W2-Installation-Guide
 TOTAL_MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
 if [ "${TOTAL_MEM_KB}" -lt 2000000 ]; then
-  echo "Low-memory Pi detected ($((TOTAL_MEM_KB / 1024)) MB RAM): expanding swap to 1024 MB"
-  sudo sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=1024/' /etc/dphys-swapfile
-  sudo sed -i 's/^#\?CONF_MAXSWAP=.*/CONF_MAXSWAP=1024/' /etc/dphys-swapfile
-  sudo systemctl restart dphys-swapfile
+  if [ -f /etc/dphys-swapfile ]; then
+    echo "Low-memory Pi detected ($((TOTAL_MEM_KB / 1024)) MB RAM): expanding swap to 1024 MB"
+    sudo sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=1024/' /etc/dphys-swapfile
+    sudo sed -i 's/^#\?CONF_MAXSWAP=.*/CONF_MAXSWAP=1024/' /etc/dphys-swapfile
+    sudo systemctl restart dphys-swapfile
+  elif [ ! -f /swapfile ] && ! grep -q '^/swapfile' /etc/fstab; then
+    # Debian Trixie has no dphys-swapfile (zram only, and zram alone is thin
+    # for TensorFlow on 1 GB) - add a persistent 2 GB swapfile instead.
+    echo "Low-memory Pi detected ($((TOTAL_MEM_KB / 1024)) MB RAM): adding a 2 GB /swapfile (no dphys-swapfile on this OS)"
+    if sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile \
+       && sudo mkswap /swapfile && sudo swapon /swapfile; then
+      echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab > /dev/null
+    else
+      echo "WARNING: swapfile setup failed; continuing without extra swap"
+      sudo rm -f /swapfile
+    fi
+  fi
   echo "Disabling WiFi power-save"
   sudo iw wlan0 set power_save off 2>/dev/null || true
   printf '[connection]\nwifi.powersave = 2\n' | sudo tee /etc/NetworkManager/conf.d/wifi-powersave.conf > /dev/null
