@@ -76,10 +76,14 @@ def now_iso():
     return datetime.now(timezone.utc).astimezone().isoformat()
 
 
-def recent_payload(hours=24):
+def recent_payload(hours=24, location=False):
     base = datetime.now()
     species = []
-    for i, (sci, com, n) in enumerate(SPECIES):
+    # "deze plek" is a smaller subset - only some species were heard at the
+    # CURRENT LATITUDE/LONGITUDE, exercising the filtered (not just relabeled)
+    # path so the empty/partial states are also testable offline.
+    rows = SPECIES[:5] if location else SPECIES
+    for i, (sci, com, n) in enumerate(rows):
         last = base - timedelta(minutes=7 * i + 3)
         species.append({
             "sci": sci, "com": com, "n": n,
@@ -88,7 +92,8 @@ def recent_payload(hours=24):
             "top_file": f"{sci.replace(' ', '_')}-sample.wav",
             "top_at": last.strftime("%Y-%m-%d %H:%M:%S"),
         })
-    return {"hours": hours, "from": "", "to": "", "species": species, "as_of": now_iso()}
+    return {"hours": hours, "from": "", "to": "", "location": location,
+            "location_available": True, "species": species, "as_of": now_iso()}
 
 
 def stats_payload():
@@ -404,7 +409,8 @@ class Handler(BaseHTTPRequestHandler):
                       "timeseries": timeseries_payload}
             if action in public:
                 if action == "recent":
-                    return self._json(recent_payload(int(q.get("hours", ["24"])[0] or 24)))
+                    return self._json(recent_payload(int(q.get("hours", ["24"])[0] or 24),
+                                                     q.get("location", ["0"])[0] == "1"))
                 if action == "firstseen":
                     return self._json(firstseen_payload(int(q.get("limit", ["10"])[0] or 10)))
                 if action == "timeseries":

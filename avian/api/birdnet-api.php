@@ -115,14 +115,14 @@ if ($groupOn) {
     $momentsSql =
       "CREATE TEMP TABLE moments AS "
     . "WITH gap AS ("
-    . "  SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, "
+    . "  SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, Lat, Lon, "
     . "         julianday(Date || ' ' || Time) AS jd, "
     . "         CASE WHEN (julianday(Date || ' ' || Time) "
     . "              - LAG(julianday(Date || ' ' || Time)) "
     . "                  OVER (PARTITION BY Sci_Name ORDER BY julianday(Date || ' ' || Time))) "
     . "              * 86400.0 <= " . $gapSec . " THEN 0 ELSE 1 END AS new_moment "
     . "  FROM detections WHERE 1=1" . $hiddenFilter . ") "
-    . "SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, "
+    . "SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, Lat, Lon, "
     . "  SUM(new_moment) OVER (PARTITION BY Sci_Name ORDER BY jd ROWS UNBOUNDED PRECEDING) AS moment_id "
     . "FROM gap";
     // SQLite3 throws under PHP 8.1+ but returns false on older builds; @
@@ -132,7 +132,7 @@ if ($groupOn) {
 if ($built === false) {
     $db->exec(
       "CREATE TEMP TABLE moments AS "
-    . "SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, rowid AS moment_id "
+    . "SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, Lat, Lon, rowid AS moment_id "
     . "FROM detections WHERE 1=1" . $hiddenFilter
     );
 }
@@ -262,15 +262,37 @@ switch ($action) {
     }
 
     case 'recent': {
-        // Two filter modes share this action's response shape:
+        // Three filter modes share this action's response shape:
         //   ?hours=N           - rolling window (1..1,000,000h; ALL = the cap)
         //   ?from=&to=         - custom date range (DATUM picker), inclusive
+        //   ?location=1        - "deze plek": every detection stamped with the
+        //                        CURRENT LATITUDE/LONGITUDE (birdnet.conf), no
+        //                        time cap. Same semantics + tolerance as the
+        //                        SmallTV "location" window (scripts/smalltv_push.py
+        //                        species_at_location()) - reuses each detection's
+        //                        own Lat/Lon column, not the reisschema, so it
+        //                        works even without any schedule stops configured.
         // $win is the WHERE fragment + bind shared by both queries below.
+        $useLocation = ($_GET['location'] ?? '') === '1';
         $from = (string)($_GET['from'] ?? '');
         $to   = (string)($_GET['to'] ?? '');
-        $useRange = ($from !== '' || $to !== '');
+        $useRange = !$useLocation && ($from !== '' || $to !== '');
         $hours = max(1, min(1000000, (int)($_GET['hours'] ?? 24)));
-        if ($useRange) {
+        $locationAvailable = false;
+        if ($useLocation) {
+            $curLat = av_conf_value('LATITUDE', '');
+            $curLon = av_conf_value('LONGITUDE', '');
+            $locationAvailable = is_numeric($curLat) && is_numeric($curLon);
+            if ($locationAvailable) {
+                $win = 'Lat IS NOT NULL AND Lon IS NOT NULL AND ABS(Lat - :lat) < :tol AND ABS(Lon - :lon) < :tol';
+                $bind = [':lat' => (float)$curLat, ':lon' => (float)$curLon, ':tol' => 0.02];
+            } else {
+                // No LATITUDE/LONGITUDE configured yet - degrade to "nothing
+                // matches" rather than erroring, same as an empty window.
+                $win = '0';
+                $bind = [];
+            }
+        } elseif ($useRange) {
             $conds = []; $bind = [];
             if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) { $conds[] = 'Date >= :from'; $bind[':from'] = $from; }
             if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $to))   { $conds[] = 'Date <= :to';   $bind[':to'] = $to; }
@@ -288,11 +310,14 @@ switch ($action) {
         . "GROUP BY Sci_Name ORDER BY last_seen DESC",
           $bind
         );
-        // for each row, attach the file of the top-confidence detection in the window
+        // for each row, attach the file of the top-confidence detection in the
+        // window. Queries the raw table directly (same $win works there too -
+        // Date/Time/Lat/Lon all exist on both), so also needs the hidden-detection
+        // exclusion moments already applies.
         foreach ($rs as &$r) {
             $best = one($db,
               "SELECT File_Name AS file, Date AS d, Time AS t, Confidence AS conf "
-            . "FROM detections WHERE Sci_Name = :sn AND $win "
+            . "FROM detections WHERE Sci_Name = :sn AND $win" . $hiddenFilter . " "
             . "ORDER BY Confidence DESC LIMIT 1",
               array_merge($bind, [':sn' => $r['sci']])
             );
@@ -300,6 +325,7 @@ switch ($action) {
             $r['top_at']   = isset($best['d']) ? ($best['d'].' '.$best['t']) : null;
         }
         echo json_encode(['hours' => $hours, 'from' => $from, 'to' => $to,
+                          'location' => $useLocation, 'location_available' => $locationAvailable,
                           'species' => $rs, 'as_of' => date('c')]);
         break;
     }

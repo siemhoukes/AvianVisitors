@@ -227,6 +227,11 @@
   // Custom date-range state (DATUM button). winSerial guards stale async
   // responses when the window or range changes mid-fetch.
   var customMode = false, customFrom = '', customTo = '', winSerial = 0;
+  // "PLEK" (deze plek) - every detection stamped with the unit's CURRENT
+  // LATITUDE/LONGITUDE, no time cap. See birdnet-api.php's `recent` action
+  // (?location=1) - same species_at_location() semantics as the SmallTV
+  // "deze plek" window (scripts/smalltv_push.py), applied to the main collage.
+  var locationMode = false;
   var winRange = document.getElementById('winRange');
   var winFromEl = document.getElementById('winFrom');
   var winToEl = document.getElementById('winTo');
@@ -239,9 +244,15 @@
       winSerial++;
       if (b.dataset.h === 'custom') {
         customMode = true;
+        locationMode = false;
         if (winRange) winRange.hidden = false;
+      } else if (b.dataset.h === 'location') {
+        customMode = false;
+        locationMode = true;
+        if (winRange) winRange.hidden = true;
       } else {
         customMode = false;
+        locationMode = false;
         if (winRange) winRange.hidden = true;
         currentHours = +b.dataset.h;
         writeLS('bird:window', String(currentHours));
@@ -258,8 +269,9 @@
       refreshRecent(true);
     });
   });
-  // The recent-data query: preset hours, or a custom from/to range.
+  // The recent-data query: preset hours, a custom from/to range, or "deze plek".
   function recentQuery() {
+    if (locationMode) return 'action=recent&location=1';
     if (customMode) {
       var q = 'action=recent';
       if (customFrom) q += '&from=' + encodeURIComponent(customFrom);
@@ -1008,6 +1020,7 @@
   // a bare "window" with the span it actually covers. Thresholds match
   // the winPick buttons (1H / 12H / 24H / 7D / ALL).
   function windowLabel(h) {
+    if (locationMode) return 'op deze plek';
     if (customMode) return customRangeLabel();
     if (h <= 1) return 'dit uur';
     if (h <= 12) return 'afgelopen 12 u';
@@ -1327,9 +1340,10 @@
       ? lifelist
       : lifelist.filter(function (s) { return (winBySci[s.sci] || 0) > 0; });
     if (!filtered.length) {
+      var noLoc = locationMode && DATA.recent && DATA.recent.location_available === false;
       grid.innerHTML = '<div class="atlas-empty">' +
-        '<p>Geen waarnemingen in deze periode.</p>' +
-        '<p class="hint">Probeer een langere periode.</p>' +
+        '<p>' + (locationMode ? 'Geen waarnemingen op deze plek.' : 'Geen waarnemingen in deze periode.') + '</p>' +
+        '<p class="hint">' + (noLoc ? 'Nog geen locatie ingesteld.' : locationMode ? 'Nog niets gehoord hier.' : 'Probeer een langere periode.') + '</p>' +
         '</div>';
       return;
     }
@@ -1362,7 +1376,9 @@
       var total = +s.n || 0;
       var win = winBySci[s.sci] || 0;
       var firstMs = Date.parse((s.first_seen || '').replace(' ', 'T'));
-      var isLifer = !isAllWindow && !isNaN(firstMs) && firstMs >= windowStartMs;
+      // No single time boundary for "deze plek" - skip the lifer badge
+      // there too, same as the ALL window.
+      var isLifer = !isAllWindow && !locationMode && !isNaN(firstMs) && firstMs >= windowStartMs;
       var sketchSrc = './avian/api/cutout.php?sci=' + encodeURIComponent(s.sci) +
         (s.com ? '&com=' + encodeURIComponent(s.com) : '') +
         '&v=' + SKETCH_VERSION;
