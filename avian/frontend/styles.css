@@ -1140,7 +1140,10 @@
     padding: 14px 16px; border-radius: 8px;
     max-height: 65vh; overflow: auto; white-space: pre-wrap;
   }
-  /* Admin moderation ("waarnemingen beheren") - hide/unhide list. */
+  /* Admin moderation ("waarnemingen beheren") - hide/unhide list. Rows reuse
+     the SAME .rec-row markup (+ real spectrogram) as the species-detail
+     modal's recordings list - see wireRecRowClicks/wireRecRowScrub in
+     apt.js - just with an extra "switch" column tacked on. */
   .mod-toolbar {
     display: flex; gap: 10px; align-items: center; margin-bottom: 12px;
   }
@@ -1154,57 +1157,24 @@
     letter-spacing: 0.06em; white-space: nowrap;
   }
   .mod-list {
+    list-style: none; margin: 0; padding: 0;
     display: flex; flex-direction: column; gap: 4px;
   }
-  .mod-row {
-    display: grid; grid-template-columns: 28px 1fr auto auto; gap: 10px;
-    align-items: center;
-    padding: 7px 12px; border-radius: 8px;
-    background: var(--paper);
-    box-shadow: var(--edge);
-    transition: opacity 160ms ease, background 160ms ease;
+  /* #modList prefix beats the base .rec-row/.rec-row.expanded rules
+     (defined later in this file) on specificity regardless of source
+     order, so the extra switch column always wins. */
+  #modList .rec-row {
+    grid-template-columns: 30px 1fr auto auto;
   }
-  .mod-row:hover { background: var(--paper-2); }
+  .mod-row .switch { margin-left: 4px; }
   .mod-row.mod-hidden, .mod-row[data-hidden="true"] { opacity: .42; }
-  .mod-row .play {
-    background: var(--paper-2); border: 0; color: var(--ink);
-    width: 24px; height: 24px; border-radius: 999px;
-    display: inline-flex; align-items: center; justify-content: center;
-    box-shadow: var(--raised); cursor: pointer; padding: 0;
-  }
-  .mod-row .play svg { width: 8px; height: 8px; }
-  .mod-row .play[disabled] { opacity: .35; cursor: default; box-shadow: none; }
-  .mod-info {
-    display: flex; flex-direction: column; min-width: 0;
-  }
-  .mod-name {
-    font: 13px ui-serif, Georgia, serif; color: var(--ink);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .mod-name small { color: var(--ink-soft); font: 10px ui-monospace, Menlo, monospace; margin-left: 4px; }
-  .mod-when {
-    font: 10.5px ui-monospace, Menlo, monospace; color: var(--ink-soft);
-    letter-spacing: 0.04em;
-  }
-  .mod-conf {
-    font: 10px ui-monospace, Menlo, monospace; color: var(--ink-soft);
-    letter-spacing: 0.06em; font-variant-numeric: tabular-nums;
-  }
   .mod-loading {
     padding: 20px; text-align: center;
     font: 11px/1.5 ui-serif, Georgia, serif; color: var(--ink-soft);
   }
-  .mod-more-row { display: flex; justify-content: center; margin-top: 14px; }
-  .mod-more-row button {
-    font: 10.5px ui-monospace, Menlo, monospace; letter-spacing: 0.06em;
-    padding: 7px 16px; border: 0; background: var(--paper-2);
-    border-radius: 999px; cursor: pointer; color: var(--ink-soft);
-    box-shadow: var(--raised);
-  }
-  .mod-more-row button:hover { color: var(--ink); }
   @media (max-width: 560px) {
-    .mod-row { grid-template-columns: 24px 1fr auto; }
-    .mod-conf { display: none; }
+    #modList .rec-row { grid-template-columns: 24px 1fr auto auto; }
+    .mod-row .conf { display: none; }
   }
 
   .admin-actions-grid {

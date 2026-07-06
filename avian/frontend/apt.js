@@ -3116,7 +3116,7 @@
     adminEl.setAttribute('aria-hidden', 'false');
     adminTitle.textContent = ADMIN_TITLES[section] || section;
     if (adminPollT) { clearInterval(adminPollT); adminPollT = null; }
-    if (adminSect === 'moderation' && section !== 'moderation') modStopAudio();
+    if (adminSect === 'moderation' && section !== 'moderation') stopModalAudio();
     adminSect = section;
     if (section === 'settings') renderAdminSettings();
     else if (section === 'system') renderAdminSystem();
@@ -3128,7 +3128,7 @@
     document.body.classList.remove('admin-on');
     adminEl.setAttribute('aria-hidden', 'true');
     if (adminPollT) { clearInterval(adminPollT); adminPollT = null; }
-    if (adminSect === 'moderation') modStopAudio();
+    if (adminSect === 'moderation') stopModalAudio();
     adminSect = null;
   }
 
@@ -3467,113 +3467,115 @@
 
   // ---- Waarnemingen beheren: hide/unhide recognitions ----
   // One row per "waarneming" (moment - same grouping as everywhere else in
-  // the app), newest first, with a play button for the clip and a switch
-  // for visible/hidden. Hiding POSTs the moment's raw rowids to
-  // moderation.php; the row dims immediately (optimistic) and reverts if the
-  // request fails. Available to both logged-in tiers (CAPS.moderate),
-  // gated server-side like the rest of the settings drawer (AUTH_BOTH in
-  // update_caddyfile.sh) - not admin-exclusive.
-  var modState = null;   // { q, offset, total, audio, playBtn } - reset per open
+  // the app), newest first, with a play button + real spectrogram (reusing
+  // the SAME .rec-row markup and wiring as the species-detail modal, via
+  // wireRecRowClicks/wireRecRowScrub) and a switch for visible/hidden.
+  // Hiding POSTs the moment's raw rowids to moderation.php; the row dims
+  // immediately (optimistic) and reverts if the request fails. Available to
+  // both logged-in tiers (CAPS.moderate), gated server-side like the rest of
+  // the settings drawer (AUTH_BOTH in update_caddyfile.sh) - not admin-exclusive.
+  //
+  // Search is CLIENT-SIDE against the same dispName() text the row shows -
+  // moderation.php's own ?q= only matches the raw DB Sci_Name/Com_Name
+  // columns, which are in whatever DATABASE_LANG BirdNET-Pi was configured
+  // with (often English) and can differ from the Dutch name NAMES_NL
+  // displays, so a server-side-only search would silently miss matches.
+  // The whole set is loaded once (moments are already collapsed + this is a
+  // personal deployment, not a big dataset) rather than re-querying per
+  // keystroke.
+  var modState = null;   // { all } - reset per open
   function modEsc(s) { return adminEsc(s); }
   function renderAdminModeration() {
-    modState = { q: '', offset: 0, total: 0, audio: null, playBtn: null };
+    modState = { all: [] };
     adminBody.innerHTML =
       '<div class="mod-toolbar">'
       + '  <input type="search" id="modSearch" placeholder="zoek op vogelnaam...">'
       + '  <span class="mod-count" id="modCount"></span>'
       + '</div>'
-      + '<div class="mod-list" id="modList"></div>'
-      + '<div class="mod-more-row"><button type="button" id="modMore" hidden>meer laden</button></div>';
-    var searchEl = document.getElementById('modSearch');
-    var searchT = null;
-    searchEl.addEventListener('input', function () {
-      clearTimeout(searchT);
-      searchT = setTimeout(function () { modLoad(true); }, 250);
+      + '<ol class="mod-list" id="modList"></ol>';
+    document.getElementById('modSearch').addEventListener('input', modApplySearch);
+    var list = document.getElementById('modList');
+    modWireSwitches(list);
+    wireRecRowClicks(list);
+    wireRecRowScrub(list);
+    modFetchAll();
+  }
+  // Page through moderation.php until every moment is loaded (no silent
+  // truncation - a personal life list tops out at a few thousand moments).
+  function modFetchAll(offset, acc) {
+    offset = offset || 0; acc = acc || [];
+    var list = document.getElementById('modList');
+    if (offset === 0) list.innerHTML = '<li class="mod-loading">laden...</li>';
+    adminApi('./avian/api/moderation.php?limit=500&offset=' + offset)
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (j) {
+        acc = acc.concat(j.moments || []);
+        if (acc.length < (j.total || 0) && (j.moments || []).length) {
+          modFetchAll(offset + (j.moments || []).length, acc);
+          return;
+        }
+        modState.all = acc;
+        document.getElementById('modCount').textContent = acc.length + ' waarneming' + (acc.length === 1 ? '' : 'en');
+        modApplySearch();
+      })
+      .catch(function () {
+        list.innerHTML = '<li class="mod-loading">laden mislukt.</li>';
+      });
+  }
+  function modApplySearch() {
+    if (!modState || !modState.all.length && !document.getElementById('modSearch')) return;
+    var q = (document.getElementById('modSearch').value || '').trim().toLowerCase();
+    var rows = !q ? modState.all : modState.all.filter(function (m) {
+      return dispName(m.sci, m.com).toLowerCase().indexOf(q) !== -1
+        || m.sci.toLowerCase().indexOf(q) !== -1;
     });
-    document.getElementById('modMore').addEventListener('click', function () { modLoad(false); });
-    document.getElementById('modList').addEventListener('click', modListClick);
-    modLoad(true);
+    var list = document.getElementById('modList');
+    list.innerHTML = rows.length ? rows.map(modRowHtml).join('')
+      : '<li class="mod-loading">' + (q ? 'geen match.' : 'geen waarnemingen.') + '</li>';
   }
   function modRowHtml(m) {
     var when = (m.last_seen || '').split(' ');
     var conf = m.best_conf != null ? (m.best_conf * 100).toFixed(0) + '%' : '-';
     var countTag = m.n > 1 ? ' <small>&times;' + m.n + '</small>' : '';
-    return '<div class="mod-row" data-rowids="' + m.rowids.join(',') + '" data-sci="' + modEsc(m.sci) + '" data-file="' + modEsc(m.file || '') + '" data-hidden="' + (m.hidden ? 'true' : 'false') + '">'
+    return '<li class="rec-row mod-row" data-file="' + modEsc(m.file || '') + '" data-rowids="' + m.rowids.join(',') + '" data-hidden="' + (m.hidden ? 'true' : 'false') + '">'
       + '  <button class="play" type="button" aria-label="afspelen"' + (m.file ? '' : ' disabled') + '>' + ICON_PLAY + '</button>'
-      + '  <div class="mod-info"><span class="mod-name">' + modEsc(dispName(m.sci, m.com)) + countTag + '</span>'
-      +      '<span class="mod-when">' + modEsc(fmtDateLine(when[0], when[1])) + '</span></div>'
-      + '  <span class="mod-conf">' + conf + '</span>'
+      + '  <span class="when">' + modEsc(dispName(m.sci, m.com)) + countTag + '<small>' + modEsc(fmtDateLine(when[0], when[1])) + '</small></span>'
+      + '  <span class="conf">' + conf + '</span>'
       + '  <button type="button" class="switch" role="switch" aria-checked="' + (m.hidden ? 'false' : 'true') + '" aria-label="waarneming tonen"></button>'
-      + '</div>';
+      + '  <div class="rec-spectro" aria-hidden="true">'
+      +     '<div class="rec-spectro-loading">spectrogram laden...</div>'
+      +     '<div class="rec-spectro-played"></div>'
+      +     '<div class="rec-spectro-cursor"></div>'
+      +     '<div class="rec-spectro-scrub" role="slider" aria-label="spoelen" tabindex="0"></div>'
+      +   '</div>'
+      + '</li>';
   }
-  function modLoad(reset) {
-    if (reset) { modState.offset = 0; modState.q = document.getElementById('modSearch').value.trim(); }
-    var list = document.getElementById('modList');
-    var moreBtn = document.getElementById('modMore');
-    if (reset) list.innerHTML = '<p class="mod-loading">laden...</p>';
-    var url = './avian/api/moderation.php?limit=100&offset=' + modState.offset
-      + (modState.q ? '&q=' + encodeURIComponent(modState.q) : '');
-    adminApi(url).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (j) {
-        modState.total = j.total || 0;
-        var html = (j.moments || []).map(modRowHtml).join('');
-        if (reset) list.innerHTML = html || '<p class="mod-loading">geen waarnemingen.</p>';
-        else list.insertAdjacentHTML('beforeend', html);
-        modState.offset += (j.moments || []).length;
-        moreBtn.hidden = modState.offset >= modState.total;
-        document.getElementById('modCount').textContent = modState.offset + ' / ' + modState.total;
-      })
-      .catch(function () {
-        if (reset) list.innerHTML = '<p class="mod-loading">laden mislukt.</p>';
-      });
-  }
-  function modStopAudio() {
-    if (!modState) return;
-    audioRelease(modStopAudio);
-    if (modState.audio) { try { modState.audio.pause(); } catch (e) {} modState.audio = null; }
-    if (modState.playBtn) { modState.playBtn.innerHTML = ICON_PLAY; modState.playBtn = null; }
-  }
-  function modListClick(ev) {
-    var playBtn = ev.target.closest('.play');
-    var row = ev.target.closest('.mod-row');
-    if (!row) return;
-    if (playBtn) {
-      var wasPlaying = modState.playBtn === playBtn;
-      modStopAudio();
-      if (wasPlaying) return;   // this row's button was the toggle-off click
-      var file = row.dataset.file;
-      if (!file) return;
-      playBtn.innerHTML = ICON_PAUSE;
-      modState.playBtn = playBtn;
-      var audio = new Audio();
-      modState.audio = audio;
-      audioClaim(modStopAudio);
-      authedAudioUrl('./avian/api/recording.php?file=' + encodeURIComponent(file))
-        .then(function (u) { if (modState.audio === audio) { audio.src = u; audio.play().catch(modStopAudio); } })
-        .catch(modStopAudio);
-      audio.addEventListener('ended', modStopAudio);
-      audio.addEventListener('error', modStopAudio);
-      return;
-    }
-    var sw = ev.target.closest('.switch');
-    if (!sw) return;
-    var rowids = (row.dataset.rowids || '').split(',').filter(Boolean).map(Number);
-    if (!rowids.length) return;
-    var willHide = sw.getAttribute('aria-checked') === 'true';
-    sw.setAttribute('aria-checked', willHide ? 'false' : 'true');
-    row.setAttribute('data-hidden', willHide ? 'true' : 'false');
-    row.classList.toggle('mod-hidden', willHide);
-    adminApi('./avian/api/moderation.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ op: willHide ? 'hide' : 'unhide', rowids: rowids }),
-    }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .catch(function () {
-        // Revert on failure so the switch never lies about server state.
-        sw.setAttribute('aria-checked', willHide ? 'true' : 'false');
-        row.setAttribute('data-hidden', willHide ? 'false' : 'true');
-        row.classList.toggle('mod-hidden', !willHide);
-      });
+  // Hide/unhide switch - separate from wireRecRowClicks (which explicitly
+  // ignores .switch clicks so the two don't fight over the same click).
+  function modWireSwitches(list) {
+    list.addEventListener('click', function (ev) {
+      var sw = ev.target.closest('.switch');
+      if (!sw) return;
+      var row = sw.closest('.mod-row');
+      if (!row) return;
+      var rowids = (row.dataset.rowids || '').split(',').filter(Boolean).map(Number);
+      if (!rowids.length) return;
+      var willHide = sw.getAttribute('aria-checked') === 'true';
+      sw.setAttribute('aria-checked', willHide ? 'false' : 'true');
+      row.setAttribute('data-hidden', willHide ? 'true' : 'false');
+      row.classList.toggle('mod-hidden', willHide);
+      adminApi('./avian/api/moderation.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: willHide ? 'hide' : 'unhide', rowids: rowids }),
+      }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .catch(function () {
+          // Revert on failure so the switch never lies about server state.
+          sw.setAttribute('aria-checked', willHide ? 'true' : 'false');
+          row.setAttribute('data-hidden', willHide ? 'false' : 'true');
+          row.classList.toggle('mod-hidden', !willHide);
+        });
+    });
   }
 
   // Initial load: if URL has a sci hash, jump to atlas, highlight, and
@@ -3851,7 +3853,9 @@
       });
   }
 
-  // Per-recording row interactions in the modal:
+  // Per-recording row interactions - shared by the species-detail modal
+  // (#modalRecordings) AND the "waarnemingen beheren" list (#modList),
+  // since both use identical .rec-row markup (play button + spectrogram):
   //   - Clicking anywhere on the row toggles the spectrogram strip
   //     (independent of playback). Click again to collapse.
   //   - Clicking the play button toggles audio playback. Playback shows
@@ -3859,8 +3863,15 @@
   //     strip is collapsed, playing also expands it.
   //   - Clicking on the spectrogram itself scrubs (handled in the
   //     mousedown/touchstart wiring further down).
-  document.getElementById('modalRecordings').addEventListener('click', function (ev) {
+  // modalAudio/modalRecBtn are shared module state - only one recording
+  // (across modal + moderation list + collage cards) plays at a time.
+  function wireRecRowClicks(container) {
+    if (!container) return;
+    container.addEventListener('click', function (ev) {
     if (!ev.target.closest) return;
+    // The hide/unhide switch (moderation list only) has its own handler -
+    // don't let this click also toggle the spectrogram open/closed.
+    if (ev.target.closest('.switch')) return;
     // Locked notice (anonymous): tapping it opens the login drawer.
     if (ev.target.closest('.rec-locked')) { requireLogin(); return; }
     // Scrub-region clicks are handled by the mousedown wiring below.
@@ -3948,57 +3959,62 @@
       if (modalRecBtn && modalRecBtn.closest('.rec-row') === row) stopModalAudio();
       row.classList.remove('expanded');
     }
-  });
+    });
+  }
+  wireRecRowClicks(document.getElementById('modalRecordings'));
 
-  // Scrub by clicking / dragging on the spectrogram strip.
-  (function () {
-    var dragRow = null;
-    function seekFromEvent(row, clientX) {
-      if (!modalAudio || !modalAudio.duration) return;
-      var rowBtn = row.querySelector('.play');
-      if (rowBtn !== modalRecBtn) return;
-      var strip = row.querySelector('.rec-spectro');
-      var rect = strip.getBoundingClientRect();
-      var pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      modalAudio.currentTime = pct * modalAudio.duration;
-      // Repaint cursor + played immediately so the user sees the scrub
-      // even when audio is paused (rAF loop isn't running then).
-      var pctStr = (pct * 100).toFixed(2) + '%';
-      var played = strip.querySelector('.rec-spectro-played');
-      var cur = strip.querySelector('.rec-spectro-cursor');
-      if (played) played.style.width = pctStr;
-      if (cur) cur.style.left = pctStr;
-    }
-    document.getElementById('modalRecordings').addEventListener('mousedown', function (ev) {
+  // Scrub by clicking / dragging on the spectrogram strip. One shared drag
+  // state regardless of which container (modal or moderation list) started
+  // it - only one row can be scrubbing at a time anyway (only one plays).
+  var _dragRow = null;
+  function seekFromEvent(row, clientX) {
+    if (!modalAudio || !modalAudio.duration) return;
+    var rowBtn = row.querySelector('.play');
+    if (rowBtn !== modalRecBtn) return;
+    var strip = row.querySelector('.rec-spectro');
+    var rect = strip.getBoundingClientRect();
+    var pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    modalAudio.currentTime = pct * modalAudio.duration;
+    // Repaint cursor + played immediately so the user sees the scrub
+    // even when audio is paused (rAF loop isn't running then).
+    var pctStr = (pct * 100).toFixed(2) + '%';
+    var played = strip.querySelector('.rec-spectro-played');
+    var cur = strip.querySelector('.rec-spectro-cursor');
+    if (played) played.style.width = pctStr;
+    if (cur) cur.style.left = pctStr;
+  }
+  function wireRecRowScrub(container) {
+    if (!container) return;
+    container.addEventListener('mousedown', function (ev) {
       var s = ev.target.closest && ev.target.closest('.rec-spectro-scrub');
       if (!s) return;
       var row = s.closest('.rec-row');
       if (!row || !row.classList.contains('expanded')) return;
-      dragRow = row;
+      _dragRow = row;
       seekFromEvent(row, ev.clientX);
       ev.preventDefault();
     });
-    document.addEventListener('mousemove', function (ev) {
-      if (!dragRow) return;
-      seekFromEvent(dragRow, ev.clientX);
-    });
-    document.addEventListener('mouseup', function () { dragRow = null; });
-    // Touch.
-    document.getElementById('modalRecordings').addEventListener('touchstart', function (ev) {
+    container.addEventListener('touchstart', function (ev) {
       var s = ev.target.closest && ev.target.closest('.rec-spectro-scrub');
       if (!s) return;
       var row = s.closest('.rec-row');
       if (!row || !row.classList.contains('expanded')) return;
-      dragRow = row;
+      _dragRow = row;
       seekFromEvent(row, ev.touches[0].clientX);
       ev.preventDefault();
     }, { passive: false });
-    document.addEventListener('touchmove', function (ev) {
-      if (!dragRow) return;
-      seekFromEvent(dragRow, ev.touches[0].clientX);
-    });
-    document.addEventListener('touchend', function () { dragRow = null; });
-  })();
+  }
+  wireRecRowScrub(document.getElementById('modalRecordings'));
+  document.addEventListener('mousemove', function (ev) {
+    if (!_dragRow) return;
+    seekFromEvent(_dragRow, ev.clientX);
+  });
+  document.addEventListener('mouseup', function () { _dragRow = null; });
+  document.addEventListener('touchmove', function (ev) {
+    if (!_dragRow) return;
+    seekFromEvent(_dragRow, ev.touches[0].clientX);
+  });
+  document.addEventListener('touchend', function () { _dragRow = null; });
 
   // Any element with data-sci is a "jump to that bird's atlas card"
   // affordance: atlas cards themselves, stats list rows (top species /
