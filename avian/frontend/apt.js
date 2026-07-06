@@ -138,7 +138,7 @@
   // replays the creds it cached from the unlock POST below.
   var CAPS = {
     anon:       { authed: false, live: false, settings: false, clips: false, locations: false, moderate: false },
-    pensionado: { authed: true,  live: true,  settings: true,  clips: true,  locations: true,  moderate: false },
+    pensionado: { authed: true,  live: true,  settings: true,  clips: true,  locations: true,  moderate: true },
     admin:      { authed: true,  live: false, settings: true,  clips: true,  locations: true,  moderate: true }
   };
   var AV_AUTH = '';
@@ -1762,11 +1762,12 @@
       var cls = it.native ? '' : ' class="ext"';
       return '<a' + cls + ' href="' + it.href + '"' + attrs + '><span>' + label + '</span></a>';
     }).join('');
-    // Hide/unhide recognitions is an admin-only moderation tool (not the
-    // pensionado tier) - menu.php stays role-agnostic like the rest of its
-    // list, so the link is added client-side, gated on AV_CAPS.moderate.
-    // The endpoint itself is also server-gated (Caddy basicauth, admin user
-    // only), so a hidden link is belt-and-braces, not the real enforcement.
+    // Hide/unhide recognitions is available to both logged-in tiers (like
+    // the rest of the settings drawer) - menu.php stays role-agnostic like
+    // the rest of its list, so the link is added client-side, gated on
+    // AV_CAPS.moderate. The endpoint is also server-gated (Caddy basicauth,
+    // AUTH_BOTH), so a hidden link is belt-and-braces, not the real
+    // enforcement.
     if (AV_CAPS.moderate) {
       linksHtml += '<a href="/#admin=moderation"><span>waarnemingen beheren</span></a>';
     }
@@ -3146,11 +3147,11 @@
           ? '<div class="menu-row"><div><span class="label">Live geluid tonen</span><span class="hint">microfoon-stream in het menu</span></div>'
             + '<button type="button" class="switch" role="switch" aria-checked="' + (showLive ? 'true' : 'false') + '" data-instant="liveaudio"></button></div>'
           : '';
-        // Admin-only entry point into the hide/unhide screen. Also reachable
-        // from the drawer link, but Siem wants it discoverable from inside
-        // Settings too - a plain hash anchor is enough, syncRouter's
-        // hashchange listener already routes #admin=moderation to
-        // renderAdminModeration() regardless of which admin section is open.
+        // Entry point into the hide/unhide screen for any logged-in tier.
+        // Also reachable from the drawer link, but Siem wants it discoverable
+        // from inside Settings too - a plain hash anchor is enough,
+        // syncRouter's hashchange listener already routes #admin=moderation
+        // to renderAdminModeration() regardless of which admin section is open.
         var modRow = AV_CAPS.moderate
           ? '<div class="menu-row menu-row-nav"><div><span class="label">Waarnemingen beheren</span><span class="hint">waarnemingen verbergen of weer tonen</span></div>'
             + '<a class="menu-row-arrow" href="#admin=moderation" aria-label="openen">&rarr;</a></div>'
@@ -3454,13 +3455,14 @@
     });
   }
 
-  // ---- Admin moderation: hide/unhide recognitions ----
+  // ---- Waarnemingen beheren: hide/unhide recognitions ----
   // One row per "waarneming" (moment - same grouping as everywhere else in
   // the app), newest first, with a play button for the clip and a switch
   // for visible/hidden. Hiding POSTs the moment's raw rowids to
   // moderation.php; the row dims immediately (optimistic) and reverts if the
-  // request fails. Admin-only: the menu link and the endpoint are both
-  // gated (see CAPS.moderate + AUTH_ADMIN in update_caddyfile.sh).
+  // request fails. Available to both logged-in tiers (CAPS.moderate),
+  // gated server-side like the rest of the settings drawer (AUTH_BOTH in
+  // update_caddyfile.sh) - not admin-exclusive.
   var modState = null;   // { q, offset, total, audio, playBtn } - reset per open
   function modEsc(s) { return adminEsc(s); }
   function renderAdminModeration() {

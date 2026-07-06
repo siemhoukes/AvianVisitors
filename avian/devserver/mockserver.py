@@ -440,9 +440,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "updates": {}, "restarted": {}})
             return self._json(config_payload())
         if path == "/avian/api/moderation.php":
-            # Admin tier ONLY (not pensionado) - mirrors the AUTH_ADMIN
-            # basicauth block in scripts/update_caddyfile.sh.
-            if role != ROLE_ADMIN:
+            # Both logged-in tiers - mirrors the AUTH_BOTH basicauth block
+            # in scripts/update_caddyfile.sh.
+            if role == ROLE_ANON:
                 return self._401()
             if self.command == "POST":
                 body = self._read_json()

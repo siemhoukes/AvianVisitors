@@ -19,9 +19,8 @@
 //        the client never has to guess at moment identity across requests.
 //   POST {op:"hide"|"unhide", rowids:[...]}
 //
-// Gating: Caddy basicauth, ADMIN TIER ONLY (not pensionado) - see the
-// AUTH_ADMIN block in scripts/update_caddyfile.sh. Hiding a recognition is
-// a moderation action for Siem, not something the parents need.
+// Gating: Caddy basicauth, both logged-in tiers (AUTH_BOTH) - same as the
+// rest of the settings drawer. See scripts/update_caddyfile.sh.
 
 declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
