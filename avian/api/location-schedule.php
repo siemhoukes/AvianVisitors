@@ -73,6 +73,10 @@ function detections_between(SQLite3 $db, string $from, ?string $to): array {
     if ($to !== null && $to !== '') {
         $where .= " AND datetime(Date || ' ' || Time) < datetime(:to)";
     }
+    // Admin-hidden detections (see moderation.php) drop out of the reisschema
+    // species lists too - "hide from all the pages" includes the map/kaart.
+    $hasHiddenTbl = $db->querySingle("SELECT name FROM sqlite_master WHERE type='table' AND name='av_hidden_detections'");
+    if ($hasHiddenTbl) $where .= ' AND rowid NOT IN (SELECT det_rowid FROM av_hidden_detections)';
     $sql =
         "SELECT Sci_Name AS sci, Com_Name AS com, COUNT(*) AS n, MAX(Confidence) AS best_conf, "
         . "MIN(Date||' '||Time) AS first_seen, MAX(Date||' '||Time) AS last_seen "

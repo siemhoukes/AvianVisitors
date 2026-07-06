@@ -94,6 +94,16 @@ $groupOn = !in_array(
 $gapSec = (int)av_conf_value('AV_GROUP_GAP_SEC', (string)MOMENT_GAP_DEFAULT);
 $gapSec = max(0, min(3600, $gapSec));
 
+// Admin-hidden detections (see moderation.php) are excluded here so a hidden
+// recognition disappears from every page - collage, atlas, stats, map - while
+// the raw `detections` table stays untouched. This DB connection is READONLY,
+// so we can't CREATE TABLE IF NOT EXISTS; check sqlite_master instead and fall
+// back to no filtering on a fresh install where the table doesn't exist yet.
+$hasHiddenTbl = (bool)one($db, "SELECT name FROM sqlite_master WHERE type='table' AND name='av_hidden_detections'");
+$hiddenFilter = $hasHiddenTbl
+    ? ' AND rowid NOT IN (SELECT det_rowid FROM av_hidden_detections)'
+    : '';
+
 // Materialise moment ids ONCE per request into the connection's (writable)
 // temp schema - works despite the READONLY main db, and the multi-query stats
 // endpoint doesn't re-sessionise each time. `moment_id` runs per species, so a
@@ -111,7 +121,7 @@ if ($groupOn) {
     . "              - LAG(julianday(Date || ' ' || Time)) "
     . "                  OVER (PARTITION BY Sci_Name ORDER BY julianday(Date || ' ' || Time))) "
     . "              * 86400.0 <= " . $gapSec . " THEN 0 ELSE 1 END AS new_moment "
-    . "  FROM detections) "
+    . "  FROM detections WHERE 1=1" . $hiddenFilter . ") "
     . "SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, "
     . "  SUM(new_moment) OVER (PARTITION BY Sci_Name ORDER BY jd ROWS UNBOUNDED PRECEDING) AS moment_id "
     . "FROM gap";
@@ -122,7 +132,8 @@ if ($groupOn) {
 if ($built === false) {
     $db->exec(
       "CREATE TEMP TABLE moments AS "
-    . "SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, rowid AS moment_id FROM detections"
+    . "SELECT Date, Time, Sci_Name, Com_Name, Confidence, File_Name, rowid AS moment_id "
+    . "FROM detections WHERE 1=1" . $hiddenFilter
     );
 }
 
@@ -298,7 +309,7 @@ switch ($action) {
         if ($sci === '') { http_response_code(400); echo json_encode(['error' => 'sci= required']); break; }
         $detections = rows($db,
           "SELECT Date AS d, Time AS t, File_Name AS file, Confidence AS conf "
-        . "FROM detections WHERE Sci_Name = :sn ORDER BY Date DESC, Time DESC LIMIT 500",
+        . "FROM detections WHERE Sci_Name = :sn" . $hiddenFilter . " ORDER BY Date DESC, Time DESC LIMIT 500",
           [':sn' => $sci]
         );
         $summary = one($db,

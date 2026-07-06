@@ -150,6 +150,48 @@ def species_payload(sci):
     return {"sci": sci, "summary": summary, "detections": dets}
 
 
+def moderation_moments():
+    """Synthetic moments for the hide/unhide admin screen - a handful per
+    species so pagination + the hidden-state toggle are all exercisable
+    without a real birds.db."""
+    base = datetime.now()
+    out = []
+    rid = 1000
+    for i, (sci, com, n) in enumerate(SPECIES):
+        for k in range(3):
+            t = base - timedelta(hours=i * 3 + k * 7, minutes=k * 5)
+            rowids = [rid, rid + 1] if k == 1 else [rid]
+            rid += len(rowids)
+            out.append({
+                "sci": sci, "com": com,
+                "file": f"{sci.replace(' ', '_')}-{i}-{k}.wav",
+                "best_conf": round(0.93 - k * 0.08, 4),
+                "first_seen": t.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_seen": t.strftime("%Y-%m-%d %H:%M:%S"),
+                "n": len(rowids),
+                "rowids": rowids,
+            })
+    out.sort(key=lambda m: m["last_seen"], reverse=True)
+    return out
+
+
+_HIDDEN_ROWIDS = set()
+
+
+def moderation_payload(q, limit, offset):
+    moments = moderation_moments()
+    if q:
+        ql = q.lower()
+        moments = [m for m in moments if ql in m["sci"].lower() or ql in m["com"].lower()]
+    total = len(moments)
+    page = moments[offset:offset + limit]
+    out = []
+    for m in page:
+        hidden = all(r in _HIDDEN_ROWIDS for r in m["rowids"])
+        out.append(dict(m, hidden=hidden))
+    return {"moments": out, "total": total, "limit": limit, "offset": offset, "as_of": now_iso()}
+
+
 def locations_payload():
     """GATED: compatibility endpoint, now backed by the reisschema."""
     return {"locations": schedule_state()["schedule"], "as_of": now_iso()}
@@ -397,6 +439,25 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == "POST":
                 return self._json({"ok": True, "updates": {}, "restarted": {}})
             return self._json(config_payload())
+        if path == "/avian/api/moderation.php":
+            # Admin tier ONLY (not pensionado) - mirrors the AUTH_ADMIN
+            # basicauth block in scripts/update_caddyfile.sh.
+            if role != ROLE_ADMIN:
+                return self._401()
+            if self.command == "POST":
+                body = self._read_json()
+                op = body.get("op")
+                rowids = [int(r) for r in (body.get("rowids") or [])]
+                if op == "hide":
+                    _HIDDEN_ROWIDS.update(rowids)
+                elif op == "unhide":
+                    _HIDDEN_ROWIDS.difference_update(rowids)
+                else:
+                    return self._json({"error": "unknown op"}, 400)
+                return self._json({"ok": True, "op": op, "rowids": rowids})
+            limit = int(q.get("limit", ["100"])[0] or 100)
+            offset = int(q.get("offset", ["0"])[0] or 0)
+            return self._json(moderation_payload(q.get("q", [""])[0].strip(), limit, offset))
         if path == "/avian/api/recording.php":
             if role == ROLE_ANON:
                 return self._401()

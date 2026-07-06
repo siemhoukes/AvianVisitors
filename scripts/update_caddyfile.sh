@@ -34,6 +34,7 @@ HASHWORD=$(caddy hash-password --plaintext ${CADDY_PWD})
 # login popup never fires. Auth stays at Caddy; the in-app drawer is the only login.
 AUTH_BOTH="    birdnet ${HASHWORD}"
 AUTH_LIVE="    birdnet ${HASHWORD}"
+AUTH_ADMIN="    birdnet ${HASHWORD}"
 if ! [ -z ${LIVE_PWD} ];then
   LIVEHASH=$(caddy hash-password --plaintext ${LIVE_PWD})
   AUTH_BOTH=$(printf '    birdnet %s\n    pensionado %s' "${HASHWORD}" "${LIVEHASH}")
@@ -111,6 +112,14 @@ ${AUTH_BOTH}
   # looked for a *present* Authorization header; this enforces the password.
   basicauth /avian/api/config.php* {
 ${AUTH_BOTH}
+  }
+  # AvianVisitors: hide/unhide a recognition ("waarnemingen beheren"). Admin
+  # tier ONLY - unlike the rest of the settings drawer, this is not something
+  # the pensionado tier (parents) needs, so it gets its own basicauth block
+  # listing just the birdnet user (same pattern as AUTH_LIVE listing only
+  # pensionado for /stream, just inverted).
+  basicauth /avian/api/moderation.php* {
+${AUTH_ADMIN}
   }
   # AvianVisitors: gate the whole menu/settings drawer. menu.php returns the
   # drawer contents, so 401ing it (no creds) keeps the lock screen up until the

@@ -137,9 +137,9 @@
   // elements that can't set headers (/stream, recording.php) the browser
   // replays the creds it cached from the unlock POST below.
   var CAPS = {
-    anon:       { authed: false, live: false, settings: false, clips: false, locations: false },
-    pensionado: { authed: true,  live: true,  settings: true,  clips: true,  locations: true },
-    admin:      { authed: true,  live: false, settings: true,  clips: true,  locations: true }
+    anon:       { authed: false, live: false, settings: false, clips: false, locations: false, moderate: false },
+    pensionado: { authed: true,  live: true,  settings: true,  clips: true,  locations: true,  moderate: false },
+    admin:      { authed: true,  live: false, settings: true,  clips: true,  locations: true,  moderate: true }
   };
   var AV_AUTH = '';
   try { AV_AUTH = localStorage.getItem('bird:auth') || ''; } catch (e) {}   // persists -> stay logged in
@@ -1762,6 +1762,14 @@
       var cls = it.native ? '' : ' class="ext"';
       return '<a' + cls + ' href="' + it.href + '"' + attrs + '><span>' + label + '</span></a>';
     }).join('');
+    // Hide/unhide recognitions is an admin-only moderation tool (not the
+    // pensionado tier) - menu.php stays role-agnostic like the rest of its
+    // list, so the link is added client-side, gated on AV_CAPS.moderate.
+    // The endpoint itself is also server-gated (Caddy basicauth, admin user
+    // only), so a hidden link is belt-and-braces, not the real enforcement.
+    if (AV_CAPS.moderate) {
+      linksHtml += '<a href="/#admin=moderation"><span>waarnemingen beheren</span></a>';
+    }
     // Live mic stream: ONLY the pensionado tier may hear it (admin/Siem must
     // not be able to eavesdrop live). Within that tier it's on by default but
     // can be hidden per-device via the settings toggle.
@@ -3059,6 +3067,7 @@
     system: 'Systeem',
     logs: 'Logboek',
     tools: 'Hulpmiddelen',
+    moderation: 'Waarnemingen beheren',
   };
   function adminEsc(s) {
     return String(s == null ? '' : s)
@@ -3096,16 +3105,19 @@
     adminEl.setAttribute('aria-hidden', 'false');
     adminTitle.textContent = ADMIN_TITLES[section] || section;
     if (adminPollT) { clearInterval(adminPollT); adminPollT = null; }
+    if (adminSect === 'moderation' && section !== 'moderation') modStopAudio();
     adminSect = section;
     if (section === 'settings') renderAdminSettings();
     else if (section === 'system') renderAdminSystem();
     else if (section === 'logs') renderAdminLogs();
     else if (section === 'tools') renderAdminTools();
+    else if (section === 'moderation') renderAdminModeration();
   }
   function closeAdmin() {
     document.body.classList.remove('admin-on');
     adminEl.setAttribute('aria-hidden', 'true');
     if (adminPollT) { clearInterval(adminPollT); adminPollT = null; }
+    if (adminSect === 'moderation') modStopAudio();
     adminSect = null;
   }
 
@@ -3430,6 +3442,116 @@
         });
       });
     });
+  }
+
+  // ---- Admin moderation: hide/unhide recognitions ----
+  // One row per "waarneming" (moment - same grouping as everywhere else in
+  // the app), newest first, with a play button for the clip and a switch
+  // for visible/hidden. Hiding POSTs the moment's raw rowids to
+  // moderation.php; the row dims immediately (optimistic) and reverts if the
+  // request fails. Admin-only: the menu link and the endpoint are both
+  // gated (see CAPS.moderate + AUTH_ADMIN in update_caddyfile.sh).
+  var modState = null;   // { q, offset, total, audio, playBtn } - reset per open
+  function modEsc(s) { return adminEsc(s); }
+  function renderAdminModeration() {
+    modState = { q: '', offset: 0, total: 0, audio: null, playBtn: null };
+    adminBody.innerHTML =
+      '<div class="mod-toolbar">'
+      + '  <input type="search" id="modSearch" placeholder="zoek op vogelnaam...">'
+      + '  <span class="mod-count" id="modCount"></span>'
+      + '</div>'
+      + '<div class="mod-list" id="modList"></div>'
+      + '<div class="mod-more-row"><button type="button" id="modMore" hidden>meer laden</button></div>';
+    var searchEl = document.getElementById('modSearch');
+    var searchT = null;
+    searchEl.addEventListener('input', function () {
+      clearTimeout(searchT);
+      searchT = setTimeout(function () { modLoad(true); }, 250);
+    });
+    document.getElementById('modMore').addEventListener('click', function () { modLoad(false); });
+    document.getElementById('modList').addEventListener('click', modListClick);
+    modLoad(true);
+  }
+  function modRowHtml(m) {
+    var when = (m.last_seen || '').split(' ');
+    var conf = m.best_conf != null ? (m.best_conf * 100).toFixed(0) + '%' : '-';
+    var countTag = m.n > 1 ? ' <small>&times;' + m.n + '</small>' : '';
+    return '<div class="mod-row" data-rowids="' + m.rowids.join(',') + '" data-sci="' + modEsc(m.sci) + '" data-file="' + modEsc(m.file || '') + '" data-hidden="' + (m.hidden ? 'true' : 'false') + '">'
+      + '  <button class="play" type="button" aria-label="afspelen"' + (m.file ? '' : ' disabled') + '>' + ICON_PLAY + '</button>'
+      + '  <div class="mod-info"><span class="mod-name">' + modEsc(dispName(m.sci, m.com)) + countTag + '</span>'
+      +      '<span class="mod-when">' + modEsc(fmtDateLine(when[0], when[1])) + '</span></div>'
+      + '  <span class="mod-conf">' + conf + '</span>'
+      + '  <button type="button" class="switch" role="switch" aria-checked="' + (m.hidden ? 'false' : 'true') + '" aria-label="waarneming tonen"></button>'
+      + '</div>';
+  }
+  function modLoad(reset) {
+    if (reset) { modState.offset = 0; modState.q = document.getElementById('modSearch').value.trim(); }
+    var list = document.getElementById('modList');
+    var moreBtn = document.getElementById('modMore');
+    if (reset) list.innerHTML = '<p class="mod-loading">laden...</p>';
+    var url = './avian/api/moderation.php?limit=100&offset=' + modState.offset
+      + (modState.q ? '&q=' + encodeURIComponent(modState.q) : '');
+    adminApi(url).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (j) {
+        modState.total = j.total || 0;
+        var html = (j.moments || []).map(modRowHtml).join('');
+        if (reset) list.innerHTML = html || '<p class="mod-loading">geen waarnemingen.</p>';
+        else list.insertAdjacentHTML('beforeend', html);
+        modState.offset += (j.moments || []).length;
+        moreBtn.hidden = modState.offset >= modState.total;
+        document.getElementById('modCount').textContent = modState.offset + ' / ' + modState.total;
+      })
+      .catch(function () {
+        if (reset) list.innerHTML = '<p class="mod-loading">laden mislukt.</p>';
+      });
+  }
+  function modStopAudio() {
+    if (!modState) return;
+    audioRelease(modStopAudio);
+    if (modState.audio) { try { modState.audio.pause(); } catch (e) {} modState.audio = null; }
+    if (modState.playBtn) { modState.playBtn.innerHTML = ICON_PLAY; modState.playBtn = null; }
+  }
+  function modListClick(ev) {
+    var playBtn = ev.target.closest('.play');
+    var row = ev.target.closest('.mod-row');
+    if (!row) return;
+    if (playBtn) {
+      var wasPlaying = modState.playBtn === playBtn;
+      modStopAudio();
+      if (wasPlaying) return;   // this row's button was the toggle-off click
+      var file = row.dataset.file;
+      if (!file) return;
+      playBtn.innerHTML = ICON_PAUSE;
+      modState.playBtn = playBtn;
+      var audio = new Audio();
+      modState.audio = audio;
+      audioClaim(modStopAudio);
+      authedAudioUrl('./avian/api/recording.php?file=' + encodeURIComponent(file))
+        .then(function (u) { if (modState.audio === audio) { audio.src = u; audio.play().catch(modStopAudio); } })
+        .catch(modStopAudio);
+      audio.addEventListener('ended', modStopAudio);
+      audio.addEventListener('error', modStopAudio);
+      return;
+    }
+    var sw = ev.target.closest('.switch');
+    if (!sw) return;
+    var rowids = (row.dataset.rowids || '').split(',').filter(Boolean).map(Number);
+    if (!rowids.length) return;
+    var willHide = sw.getAttribute('aria-checked') === 'true';
+    sw.setAttribute('aria-checked', willHide ? 'false' : 'true');
+    row.setAttribute('data-hidden', willHide ? 'true' : 'false');
+    row.classList.toggle('mod-hidden', willHide);
+    adminApi('./avian/api/moderation.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ op: willHide ? 'hide' : 'unhide', rowids: rowids }),
+    }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .catch(function () {
+        // Revert on failure so the switch never lies about server state.
+        sw.setAttribute('aria-checked', willHide ? 'true' : 'false');
+        row.setAttribute('data-hidden', willHide ? 'false' : 'true');
+        row.classList.toggle('mod-hidden', !willHide);
+      });
   }
 
   // Initial load: if URL has a sci hash, jump to atlas, highlight, and
