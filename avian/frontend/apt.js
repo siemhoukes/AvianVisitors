@@ -1762,15 +1762,9 @@
       var cls = it.native ? '' : ' class="ext"';
       return '<a' + cls + ' href="' + it.href + '"' + attrs + '><span>' + label + '</span></a>';
     }).join('');
-    // Hide/unhide recognitions is available to both logged-in tiers (like
-    // the rest of the settings drawer) - menu.php stays role-agnostic like
-    // the rest of its list, so the link is added client-side, gated on
-    // AV_CAPS.moderate. The endpoint is also server-gated (Caddy basicauth,
-    // AUTH_BOTH), so a hidden link is belt-and-braces, not the real
-    // enforcement.
-    if (AV_CAPS.moderate) {
-      linksHtml += '<a href="/#admin=moderation"><span>waarnemingen beheren</span></a>';
-    }
+    // Hide/unhide recognitions lives inside Instellingen only (see the
+    // menu-row-nav row in renderAdminSettings) - deliberately not
+    // duplicated here in the top-level drawer list.
     // Live mic stream: ONLY the pensionado tier may hear it (admin/Siem must
     // not be able to eavesdrop live). Within that tier it's on by default but
     // can be hidden per-device via the settings toggle.
