@@ -7,7 +7,9 @@
 if [ "$(id -u)" -ne 0 ]; then exec sudo -E bash "$0" "$@"; fi
 source /etc/birdnet/birdnet.conf
 my_dir=$HOME/BirdNET-Pi/scripts
-set -x
+# NB: no `set -x` here - xtrace would echo the `caddy hash-password
+# --plaintext ${CADDY_PWD}` / ${LIVE_PWD} lines (plaintext passwords) to
+# stderr, which lands in the journal and installer logs.
 
 # Find the active PHP-FPM Unix socket. The path is version-specific on
 # modern Raspberry Pi OS (e.g. /run/php/php8.2-fpm.sock); the generic
@@ -66,7 +68,15 @@ http:// ${BIRDNETPI_URL} {
   handle /Charts/* {
     file_server browse
   }
-  basicauth /views.php?view=File* {
+  # Caddy path matchers never see the query string, so the upstream
+  # "/views.php?view=File*" form silently matched nothing. A named matcher
+  # with a `query` clause is the working equivalent (the file manager iframe
+  # target under /scripts* is gated too - this covers the wrapper page).
+  @fileview {
+    path /views.php
+    query view=File
+  }
+  basicauth @fileview {
 ${AUTH_BOTH}
   }
   basicauth /Processed* {

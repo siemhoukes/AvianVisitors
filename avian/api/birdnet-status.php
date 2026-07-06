@@ -198,24 +198,57 @@ const ALLOWED_UNITS = [
 ];
 
 function services_status(): array {
+    // One `systemctl show` for every unit instead of 3 execs per unit - the
+    // admin system panel polls this every 6 s, and ~36 forks per tick is real
+    // load on a Pi 3B+. Units systemd doesn't know about (e.g. php8.2-fpm on
+    // a Trixie box that ships php8.4) come back LoadState=not-found and are
+    // skipped, matching the old per-unit existence check.
+    $args = implode(' ', array_map('escapeshellarg', ALLOWED_UNITS));
+    $raw = shellout('systemctl show -p Id,LoadState,ActiveState,UnitFileState,ActiveEnterTimestamp ' . $args);
     $out = [];
-    foreach (ALLOWED_UNITS as $u) {
-        $state = trim(shellout('systemctl is-active ' . escapeshellarg($u)));
-        // Skip units that systemd doesn't know about at all (e.g. php8.2-fpm
-        // on a Trixie box that ships php8.4). Keeps the table tidy.
-        if ($state === 'inactive') {
-            $exists = trim(shellout('systemctl cat ' . escapeshellarg($u) . ' >/dev/null 2>&1 && echo Y || echo N'));
-            if ($exists !== 'Y') continue;
+    foreach (preg_split('/\n\s*\n/', trim($raw)) as $block) {
+        $p = [];
+        foreach (explode("\n", $block) as $line) {
+            $eq = strpos($line, '=');
+            if ($eq !== false) $p[substr($line, 0, $eq)] = substr($line, $eq + 1);
         }
-        $enabled = trim(shellout('systemctl is-enabled ' . escapeshellarg($u)));
-        $since = trim(shellout("systemctl show -p ActiveEnterTimestamp --value " . escapeshellarg($u)));
-        $out[$u] = [
-            'active'  => $state,
-            'enabled' => $enabled,
-            'since'   => $since ?: null,
+        if (!isset($p['Id'])) continue;
+        $name = preg_replace('/\.(service|mount|timer)$/', '', $p['Id']);
+        if (!in_array($name, ALLOWED_UNITS, true)) continue;
+        if (($p['LoadState'] ?? '') === 'not-found') continue;
+        $out[$name] = [
+            'active'  => $p['ActiveState'] ?? 'unknown',
+            'enabled' => ($p['UnitFileState'] ?? '') ?: 'unknown',
+            'since'   => ($p['ActiveEnterTimestamp'] ?? '') ?: null,
         ];
     }
     return $out;
+}
+
+function read_power(): ?array {
+    // Firmware throttle bitfield: bit 0 = under-voltage now, 2 = throttled
+    // now, 16/18 = the same since boot. The caravan unit has a history of
+    // brown-outs on marginal supplies (SD-corruption risk), so surface it in
+    // the admin system panel. The sysfs node is world-readable; vcgencmd is
+    // the fallback (may need the video group, in which case we return null).
+    $raw = null;
+    $f = '/sys/devices/platform/soc/soc:firmware/get_throttled';
+    if (is_readable($f)) {
+        $raw = trim((string)@file_get_contents($f));
+    } else {
+        if (preg_match('/throttled=0x([0-9a-fA-F]+)/', shellout('vcgencmd get_throttled'), $m)) {
+            $raw = $m[1];
+        }
+    }
+    if ($raw === null || $raw === '' || !preg_match('/^(0x)?[0-9a-fA-F]+$/', $raw)) return null;
+    $v = (int)hexdec($raw);
+    return [
+        'raw'             => sprintf('0x%x', $v),
+        'undervolt_now'   => (bool)($v & 0x1),
+        'throttled_now'   => (bool)($v & 0x4),
+        'undervolt_boot'  => (bool)($v & 0x10000),
+        'throttled_boot'  => (bool)($v & 0x40000),
+    ];
 }
 
 function logs_for(string $unit, int $lines): array {
@@ -244,6 +277,7 @@ switch ($action) {
             'disk_root'   => read_disk('/'),
             'disk_birds'  => read_disk($BIRDSONGS_DIR),
             'temp_c'      => read_temp(),
+            'power'       => read_power(),
             'audio'       => read_audio(),
             'stream_data' => read_streamdata($STREAM_DIR),
             'birds_db'    => read_db_age($DB_PATH),
@@ -314,6 +348,7 @@ switch ($action) {
                 'disk_root'   => read_disk('/'),
                 'disk_birds'  => read_disk($BIRDSONGS_DIR),
                 'temp_c'      => read_temp(),
+                'power'       => read_power(),
                 'audio'       => read_audio(),
                 'stream_data' => read_streamdata($STREAM_DIR),
                 'birds_db'    => read_db_age($DB_PATH),

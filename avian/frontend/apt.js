@@ -3278,6 +3278,17 @@
       sys.temp_c != null ? sys.temp_c.toFixed(1) + '°C' : '-',
       sys.hostname + ' · ' + sys.kernel,
       sys.temp_c != null && sys.temp_c > 75 ? 'warn' : '');
+    // Under-voltage = a weak supply/cable browning the Pi out (SD-corruption
+    // risk); the firmware remembers it per boot, so "sinds boot" means the
+    // supply dipped at least once since power-on.
+    var pw = sys.power || null;
+    html += adminCard('voeding',
+      pw == null ? '-'
+        : (pw.undervolt_now ? 'onderspanning NU'
+          : (pw.undervolt_boot ? 'onderspanning sinds boot' : 'ok')),
+      pw == null ? 'geen throttle-status beschikbaar'
+        : ('throttle ' + pw.raw + (pw.throttled_boot ? ' · was gethrottled' : '')),
+      pw == null ? '' : (pw.undervolt_now ? 'alert' : (pw.undervolt_boot ? 'warn' : '')));
     html += adminCard('memory used', sys.mem ? sys.mem.used_pct + '%' : '-',
       sys.mem ? adminFmtBytes(sys.mem.used_bytes) + ' / ' + adminFmtBytes(sys.mem.total_bytes) : '',
       sys.mem && sys.mem.used_pct > 92 ? 'warn' : '');

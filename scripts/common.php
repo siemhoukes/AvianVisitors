@@ -70,7 +70,11 @@ function is_authenticated() {
   $ret = false;
   if (isset($_SERVER['PHP_AUTH_USER'])) {
     $config = get_config();
-    $ret = ($_SERVER['PHP_AUTH_PW'] == $config['CADDY_PWD'] && $_SERVER['PHP_AUTH_USER'] == 'birdnet');
+    // hash_equals: constant-time AND strict string comparison - the loose ==
+    // upstream uses would treat numeric-string passwords as numbers
+    // ("12345" == "12345.0") and is timing-observable.
+    $ret = ($_SERVER['PHP_AUTH_USER'] === 'birdnet'
+            && hash_equals((string)($config['CADDY_PWD'] ?? ''), (string)($_SERVER['PHP_AUTH_PW'] ?? '')));
   }
   return $ret;
 }
