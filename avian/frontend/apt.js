@@ -3146,10 +3146,20 @@
           ? '<div class="menu-row"><div><span class="label">Live geluid tonen</span><span class="hint">microfoon-stream in het menu</span></div>'
             + '<button type="button" class="switch" role="switch" aria-checked="' + (showLive ? 'true' : 'false') + '" data-instant="liveaudio"></button></div>'
           : '';
+        // Admin-only entry point into the hide/unhide screen. Also reachable
+        // from the drawer link, but Siem wants it discoverable from inside
+        // Settings too - a plain hash anchor is enough, syncRouter's
+        // hashchange listener already routes #admin=moderation to
+        // renderAdminModeration() regardless of which admin section is open.
+        var modRow = AV_CAPS.moderate
+          ? '<div class="menu-row menu-row-nav"><div><span class="label">Waarnemingen beheren</span><span class="hint">waarnemingen verbergen of weer tonen</span></div>'
+            + '<a class="menu-row-arrow" href="#admin=moderation" aria-label="openen">&rarr;</a></div>'
+          : '';
         adminBody.innerHTML =
           '<div class="admin-settings">'
           + themeRow()
           + liveRow
+          + modRow
           + '<div class="menu-row"><div><span class="label">Scherm-collage toont</span><span class="hint">wat het kleine scherm laat zien</span></div>'
           +   '<div class="seg" data-instant-seg="smalltvwindow">'
           +     ['8h:8 uur', '24h:24 uur', '7d:7 dagen', 'location:deze plek'].map(function (o) { var p = o.split(':'); return '<button type="button" data-v="' + p[0] + '">' + p[1] + '</button>'; }).join('')

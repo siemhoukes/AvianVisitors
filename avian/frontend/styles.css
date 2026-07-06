@@ -309,6 +309,16 @@
     font: 9px ui-monospace, Menlo, monospace;
     color: var(--ink-soft); letter-spacing: 0.04em; margin-top: 1px;
   }
+  /* Nav row into another admin screen (e.g. Settings -> hide/unhide) - a
+     menu-row whose control is a link, not a toggle. */
+  .menu-row-nav .menu-row-arrow {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 999px;
+    background: var(--paper-2); color: var(--ink);
+    box-shadow: var(--raised); text-decoration: none;
+    font-size: 14px;
+  }
+  .menu-row-nav .menu-row-arrow:hover { background: var(--ink-2); color: var(--paper); }
 
   /* Toggle switch (raised pill that slides) */
   .switch {
