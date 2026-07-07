@@ -401,6 +401,16 @@
   function slugify(sci) {
     return sci.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
+  var FORCE_FLIGHT_GENERA = {
+    Aeronautes: true, Apus: true, Chaetura: true, Cypseloides: true,
+    Cecropis: true, Delichon: true, Hirundo: true, Petrochelidon: true,
+    Progne: true, Ptyonoprogne: true, Riparia: true, Stelgidopteryx: true,
+    Tachycineta: true,
+  };
+  function forceFlightPose(sci) {
+    var genus = (sci || '').split(' ')[0];
+    return !!FORCE_FLIGHT_GENERA[genus];
+  }
   // Dutch common names from the eBird taxonomy (locale=nl), inlined by
   // scripts/fetch_nl_names.py and keyed by scientific name. The interface
   // stays English; only the bird's name is shown in Dutch. Any species not
@@ -636,8 +646,12 @@
       // flight render exists. Flight uses the <slug>-2 mask/aspect/image so
       // the wings-spread silhouette nests correctly.
       var pose = collagePose[s.sci];
+      var forceFlight = forceFlightPose(s.sci);
       if (pose === undefined) {
-        pose = (DIMS[base + '-2'] && Math.random() < FLY_PROB) ? 2 : 1;
+        pose = (DIMS[base + '-2'] && (forceFlight || Math.random() < FLY_PROB)) ? 2 : 1;
+        collagePose[s.sci] = pose;
+      } else if (forceFlight && pose !== 2 && DIMS[base + '-2']) {
+        pose = 2;
         collagePose[s.sci] = pose;
       }
       var slug = pose === 2 ? base + '-2' : base;
@@ -2101,6 +2115,12 @@
           + settingsSlider('SENSITIVITY', 'Gevoeligheid',            'gevoeligheid van de analyser',           v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
           + settingsSlider('OVERLAP',     'Overlap',                 'seconden geanalyseerd per ronde',        v.OVERLAP,     0,   2.5,  0.1,  1)
           + settingsSlider('AUDIO_HIGHPASS_FREQ', 'Bromfilter',       'hoogdoorlaatfilter in Hz (0 = uit)',     v.AUDIO_HIGHPASS_FREQ, 0, 1000, 50, 0)
+          + settingsSegmented('AUDIO_NOTCH_BASE_FREQ', 'Netfilter', 'smalle notch op basisfrequentie', String(v.AUDIO_NOTCH_BASE_FREQ || '0'), [
+              { v: '0',  label: 'uit' },
+              { v: '50', label: '50 Hz' },
+              { v: '60', label: '60 Hz' },
+            ])
+          + settingsSlider('AUDIO_NOTCH_HARMONICS', 'Netfilter veelvouden', '2 = basis + 2x, dus 50/100 of 60/120', v.AUDIO_NOTCH_HARMONICS, 1, 10, 1, 0)
           + settingsToggle('AV_GROUP_ENABLED', 'Herhaalde waarnemingen samenvoegen', 'een vogel die doorzingt telt als één waarneming', v.AV_GROUP_ENABLED)
           + settingsSlider('AV_GROUP_GAP_SEC', 'Nieuwe waarneming na (sec)', 'stilte langer dan dit = een nieuwe waarneming', v.AV_GROUP_GAP_SEC, 5, 120, 5, 0)
           + settingsSegmented('FULL_DISK', 'Bij volle schijf', '', v.FULL_DISK, [
@@ -3180,6 +3200,12 @@
           + settingsSlider('SENSITIVITY', 'Gevoeligheid',            'gevoeligheid van de analyser',           v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
           + settingsSlider('OVERLAP',     'Overlap',                 'seconden geanalyseerd per ronde',        v.OVERLAP,     0,   2.5,  0.1,  1)
           + settingsSlider('AUDIO_HIGHPASS_FREQ', 'Bromfilter',       'hoogdoorlaatfilter in Hz (0 = uit)',     v.AUDIO_HIGHPASS_FREQ, 0, 1000, 50, 0)
+          + settingsSegmented('AUDIO_NOTCH_BASE_FREQ', 'Netfilter', 'smalle notch op basisfrequentie', String(v.AUDIO_NOTCH_BASE_FREQ || '0'), [
+              { v: '0',  label: 'uit' },
+              { v: '50', label: '50 Hz' },
+              { v: '60', label: '60 Hz' },
+            ])
+          + settingsSlider('AUDIO_NOTCH_HARMONICS', 'Netfilter veelvouden', '2 = basis + 2x, dus 50/100 of 60/120', v.AUDIO_NOTCH_HARMONICS, 1, 10, 1, 0)
           + settingsToggle('AV_GROUP_ENABLED', 'Herhaalde waarnemingen samenvoegen', 'een vogel die doorzingt telt als één waarneming', v.AV_GROUP_ENABLED)
           + settingsSlider('AV_GROUP_GAP_SEC', 'Nieuwe waarneming na (sec)', 'stilte langer dan dit = een nieuwe waarneming', v.AV_GROUP_GAP_SEC, 5, 120, 5, 0)
           + settingsSegmented('FULL_DISK', 'Bij volle schijf', '', v.FULL_DISK, [

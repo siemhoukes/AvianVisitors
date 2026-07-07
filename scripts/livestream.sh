@@ -16,6 +16,14 @@ FILTERS=()
 if [[ "${AUDIO_HIGHPASS_FREQ:-0}" =~ ^[0-9]+$ ]] && [ "${AUDIO_HIGHPASS_FREQ:-0}" -gt 0 ]; then
   FILTERS+=("highpass=f=${AUDIO_HIGHPASS_FREQ}")
 fi
+NOTCH_HARMONICS="${AUDIO_NOTCH_HARMONICS:-2}"
+if [[ "${AUDIO_NOTCH_BASE_FREQ:-0}" =~ ^[0-9]+$ ]] && [[ "${NOTCH_HARMONICS}" =~ ^[0-9]+$ ]] \
+  && [ "${AUDIO_NOTCH_BASE_FREQ:-0}" -gt 0 ] && [ "${NOTCH_HARMONICS}" -gt 0 ]; then
+  for ((i=1; i<=NOTCH_HARMONICS; i++)); do
+    notch_freq=$((AUDIO_NOTCH_BASE_FREQ * i))
+    FILTERS+=("bandreject=f=${notch_freq}:width_type=h:width=8")
+  done
+fi
 if [ "$ACTIVATE_FREQSHIFT_IN_LIVESTREAM" == "true" ]; then
   FILTERS+=("rubberband=pitch=${FREQSHIFT_LO}/${FREQSHIFT_HI}")
 fi

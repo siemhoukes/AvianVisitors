@@ -162,7 +162,7 @@ function read_db_age(string $db): array {
 function read_conf_summary(string $p): array {
     if (!is_readable($p)) return ['readable' => false];
     $keys = [
-        'CONFIDENCE','SENSITIVITY','OVERLAP','AUDIO_HIGHPASS_FREQ','REC_CARD','LATITUDE','LONGITUDE',
+        'CONFIDENCE','SENSITIVITY','OVERLAP','AUDIO_HIGHPASS_FREQ','AUDIO_NOTCH_BASE_FREQ','AUDIO_NOTCH_HARMONICS','REC_CARD','LATITUDE','LONGITUDE',
         'MODEL','SITE_NAME','RTSP_STREAM',
     ];
     $vals = [];

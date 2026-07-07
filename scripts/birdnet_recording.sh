@@ -23,9 +23,22 @@ fi
 
 [ -z $RECORDING_LENGTH ] && RECORDING_LENGTH=15
 [ -d $RECS_DIR/StreamData ] || mkdir -p $RECS_DIR/StreamData
-AUDIO_FILTER_OPT=()
+FILTERS=()
 if [[ "${AUDIO_HIGHPASS_FREQ:-0}" =~ ^[0-9]+$ ]] && [ "${AUDIO_HIGHPASS_FREQ:-0}" -gt 0 ]; then
-  AUDIO_FILTER_OPT=(-af "highpass=f=${AUDIO_HIGHPASS_FREQ}")
+  FILTERS+=("highpass=f=${AUDIO_HIGHPASS_FREQ}")
+fi
+NOTCH_HARMONICS="${AUDIO_NOTCH_HARMONICS:-2}"
+if [[ "${AUDIO_NOTCH_BASE_FREQ:-0}" =~ ^[0-9]+$ ]] && [[ "${NOTCH_HARMONICS}" =~ ^[0-9]+$ ]] \
+  && [ "${AUDIO_NOTCH_BASE_FREQ:-0}" -gt 0 ] && [ "${NOTCH_HARMONICS}" -gt 0 ]; then
+  for ((i=1; i<=NOTCH_HARMONICS; i++)); do
+    notch_freq=$((AUDIO_NOTCH_BASE_FREQ * i))
+    FILTERS+=("bandreject=f=${notch_freq}:width_type=h:width=8")
+  done
+fi
+AUDIO_FILTER_OPT=()
+if [ "${#FILTERS[@]}" -gt 0 ]; then
+  FILTER_JOINED=$(IFS=,; echo "${FILTERS[*]}")
+  AUDIO_FILTER_OPT=(-af "${FILTER_JOINED}")
 fi
 
 if [ -n "${RTSP_STREAM}" ];then

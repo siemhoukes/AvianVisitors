@@ -39,6 +39,8 @@ $ALLOWED = [
     'SF_THRESH'          => ['type' => 'float', 'min' => 0.0,  'max' => 1.0,  'restart' => true, 'restart_services' => ['birdnet_analysis']],
     'OVERLAP'            => ['type' => 'float', 'min' => 0.0,  'max' => 2.5,  'restart' => true, 'restart_services' => ['birdnet_analysis']],
     'AUDIO_HIGHPASS_FREQ' => ['type' => 'int',   'min' => 0,    'max' => 2000, 'restart' => true, 'restart_services' => ['birdnet_recording', 'birdnet_analysis', 'livestream']],
+    'AUDIO_NOTCH_BASE_FREQ' => ['type' => 'enum', 'values' => ['0', '50', '60'], 'default' => '0', 'restart' => true, 'restart_services' => ['birdnet_recording', 'birdnet_analysis', 'livestream']],
+    'AUDIO_NOTCH_HARMONICS' => ['type' => 'int', 'min' => 1, 'max' => 10, 'default' => 2, 'restart' => true, 'restart_services' => ['birdnet_recording', 'birdnet_analysis', 'livestream']],
     'MAX_FILES_SPECIES'  => ['type' => 'int',   'min' => 0,    'max' => 100000],
     'FULL_DISK'          => ['type' => 'enum',  'values' => ['purge', 'keep']],
     'PURGE_THRESHOLD'    => ['type' => 'int',   'min' => 50,   'max' => 99],
@@ -178,6 +180,7 @@ if ($method === 'POST') {
             // Stored as bare true/false so birdnet.conf stays shell-sourceable.
             $v = ($v === true || $v === 1 || $v === '1' || $v === 'true') ? 'true' : 'false';
         } elseif ($spec['type'] === 'enum') {
+            $v = (string)$v;
             if (!in_array($v, $spec['values'], true)) { $errors[$k] = 'invalid value'; continue; }
         } elseif ($spec['type'] === 'string') {
             $v = (string)$v;

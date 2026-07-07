@@ -182,6 +182,12 @@ REC_CARD=default
 
 AUDIO_HIGHPASS_FREQ=0
 
+## Optional narrow mains-hum notch. Set base to 50 or 60, then choose how many
+## multiples to remove. Example: base 50 + harmonics 2 removes 50 Hz and 100 Hz.
+
+AUDIO_NOTCH_BASE_FREQ=0
+AUDIO_NOTCH_HARMONICS=2
+
 ## PROCESSED is the directory where the formerly 'Analyzed' files are moved
 ## after extractions have been made from them. This includes both WAVE and
 ## BirdNET.selection.txt files.

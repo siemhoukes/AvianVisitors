@@ -56,9 +56,20 @@ def _table(name):
 DIMS = _table("DIMS")
 MASKS = _table("MASKS")
 
+FORCE_FLIGHT_GENERA = {
+    "Aeronautes", "Apus", "Chaetura", "Cypseloides",
+    "Cecropis", "Delichon", "Hirundo", "Petrochelidon",
+    "Progne", "Ptyonoprogne", "Riparia", "Stelgidopteryx",
+    "Tachycineta",
+}
+
 
 def slugify(sci):
     return re.sub(r"[^a-z0-9]+", "-", sci.lower()).strip("-")
+
+
+def force_flight_pose(sci):
+    return (sci or "").split(" ", 1)[0] in FORCE_FLIGHT_GENERA
 
 
 def mask_cells_from_rec(rec):
@@ -183,7 +194,13 @@ def compose_collage(species):
     T = tuning(n); vp = SIZE * SIZE; budget = vp * T["budget"]; minArea = vp * T["minTile"]
     tiles = []
     for s in species:
-        slug = slugify(s["sci"])
+        base_slug = slugify(s["sci"])
+        flight_slug = f"{base_slug}-2"
+        slug = flight_slug if (
+            force_flight_pose(s.get("sci", ""))
+            and flight_slug in MASKS
+            and (ILL / f"{flight_slug}.png").is_file()
+        ) else base_slug
         if slug in MASKS and (ILL / f"{slug}.png").is_file():
             mask = mask_cells_from_rec(MASKS[slug]); d = DIMS.get(slug, [560, 400])
             ar = d[0] / d[1]; imgpath = ILL / f"{slug}.png"
