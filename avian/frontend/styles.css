@@ -136,8 +136,16 @@
      spacious to thumb-tight without losing legibility. */
   @media (max-width: 700px) {
     .top { top: 12px; padding: 0 12px; }
-    .top .window-pick { padding: 3px; }
+    /* User-added windows can outgrow the phone width - the pill row then
+       scrolls sideways instead of pushing the menu button off screen. */
+    .top .window-pick {
+      padding: 3px;
+      max-width: calc(100vw - 100px);
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .top .window-pick::-webkit-scrollbar { display: none; }
     .top .window-pick button {
+      flex: 0 0 auto;
       font-size: 8.5px; padding: 6px 10px; letter-spacing: 0.12em;
     }
     .menu-btn { font-size: 9px; padding: 6px 11px 5px; letter-spacing: 0.14em; }
@@ -415,6 +423,56 @@
     background: var(--pill);
     box-shadow: var(--raised);
   }
+
+  /* Tijdkiezer editor (Settings) - chips for the picker's hour windows,
+     plus an add row (value + uur/dagen + toevoegen) and a reset. */
+  .menu-row-col { grid-template-columns: 1fr; align-items: start; }
+  .win-opts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .win-chip {
+    display: inline-flex; align-items: center; gap: 2px;
+    background: var(--pill); box-shadow: var(--raised);
+    border-radius: 999px; padding: 5px 8px 5px 11px;
+    font: 9.5px ui-monospace, Menlo, monospace;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink);
+  }
+  .win-chip .chip-x {
+    background: transparent; border: 0; cursor: pointer;
+    color: var(--ink-soft); font: 12px/1 ui-monospace, Menlo, monospace;
+    padding: 0 3px; border-radius: 999px;
+    transition: color 150ms ease;
+  }
+  .win-chip .chip-x:hover { color: var(--ink); }
+  .win-chip-note {
+    font: 9px ui-monospace, Menlo, monospace; color: var(--ink-soft);
+    letter-spacing: 0.08em; padding: 0 4px;
+  }
+  .win-opts-add { display: flex; align-items: center; gap: 8px; }
+  .win-opts-add input[type="number"] {
+    width: 52px; padding: 6px 8px; border: 0; border-radius: 999px;
+    background: var(--paper-2); box-shadow: var(--recess);
+    color: var(--ink); font: 10.5px ui-monospace, Menlo, monospace;
+    text-align: center; -moz-appearance: textfield; appearance: textfield;
+  }
+  .win-opts-add input[type="number"]::-webkit-outer-spin-button,
+  .win-opts-add input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none; margin: 0;
+  }
+  .win-opts-add input[type="number"]:focus { outline: 1px solid var(--ink-soft); }
+  .win-opt-add-btn {
+    background: var(--pill); box-shadow: var(--raised); border: 0;
+    color: var(--ink); cursor: pointer; border-radius: 999px;
+    width: 26px; height: 26px; font: 14px/1 ui-monospace, Menlo, monospace;
+    transition: color 150ms ease;
+  }
+  .win-opt-add-btn:disabled { color: var(--ink-soft); cursor: default; opacity: 0.5; }
+  .win-opt-reset {
+    background: transparent; border: 0; cursor: pointer;
+    color: var(--ink-soft); font: 9px ui-monospace, Menlo, monospace;
+    letter-spacing: 0.14em; text-transform: uppercase; padding: 6px 4px;
+    text-decoration: underline; text-underline-offset: 2px;
+    transition: color 150ms ease; margin-left: auto;
+  }
+  .win-opt-reset:hover { color: var(--ink); }
 
   /* Inline live-audio player - sits at the top of the unlocked drawer.
      A single play/stop button with a quiet running-indicator dot. */

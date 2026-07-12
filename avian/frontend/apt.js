@@ -222,7 +222,41 @@
     return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   }
   applyTheme(readLS('bird:theme', 'light'));
-  var winBtns = [].slice.call(winPick.querySelectorAll('button'));
+  // The hour buttons of the time-window picker are user-editable (Settings ->
+  // Tijdkiezer, stored per device in bird:winOptions). ALLES / DATUM / PLEK
+  // are fixed modes, always present. Unset key = the classic 1U/12U/24U/7D.
+  var WIN_DEFAULT = [1, 12, 24, 168];
+  var WIN_MAX_OPTIONS = 7;     // header space; ALLES/DATUM/PLEK come on top
+  var WIN_MAX_HOURS = 8760;    // a year - beyond that ALLES already covers it
+  function getWinOptions() {
+    try {
+      var arr = JSON.parse(readLS('bird:winOptions', '') || 'null');
+      if (arr && arr.length) {
+        arr = arr.map(Number).filter(function (h) {
+          return isFinite(h) && h >= 1 && h <= WIN_MAX_HOURS && h === Math.floor(h);
+        });
+        arr = arr.filter(function (h, i) { return arr.indexOf(h) === i; });
+        arr.sort(function (a, b) { return a - b; });
+        if (arr.length) return arr.slice(0, WIN_MAX_OPTIONS);
+      }
+    } catch (e) {}
+    return WIN_DEFAULT.slice();
+  }
+  function setWinOptions(arr) {
+    // Store nothing for the default set so new defaults reach old devices.
+    if (arr.join(',') === WIN_DEFAULT.join(',')) {
+      try { localStorage.removeItem('bird:winOptions'); } catch (e) {}
+    } else {
+      writeLS('bird:winOptions', JSON.stringify(arr));
+    }
+    rebuildWinPick();
+  }
+  // Button caption: whole days from 2 days up read as days ("7D"), anything
+  // else in hours ("6U", "24U" stays hours to match the classic set).
+  function winBtnText(h) {
+    if (h >= 48 && h % 24 === 0) return (h / 24) + 'D';
+    return h + 'U';
+  }
   var currentHours = +readLS('bird:window', '24') || 24;
   // Custom date-range state (DATUM button). winSerial guards stale async
   // responses when the window or range changes mid-fetch.
@@ -235,32 +269,62 @@
   var winRange = document.getElementById('winRange');
   var winFromEl = document.getElementById('winFrom');
   var winToEl = document.getElementById('winTo');
-  winBtns.forEach(function (b) {
-    b.setAttribute('aria-current', (+b.dataset.h === currentHours) ? 'true' : 'false');
-  });
-  winBtns.forEach(function (b) {
-    b.addEventListener('click', function () {
-      winBtns.forEach(function (x) { x.setAttribute('aria-current', x === b ? 'true' : 'false'); });
-      winSerial++;
-      if (b.dataset.h === 'custom') {
-        customMode = true;
-        locationMode = false;
-        if (winRange) winRange.hidden = false;
-      } else if (b.dataset.h === 'location') {
-        customMode = false;
-        locationMode = true;
-        if (winRange) winRange.hidden = true;
-      } else {
-        customMode = false;
-        locationMode = false;
-        if (winRange) winRange.hidden = true;
-        currentHours = +b.dataset.h;
-        writeLS('bird:window', String(currentHours));
-      }
-      syncPill(winPick);
-      // Actual data refresh is wired below via refreshRecent().
+  // Regenerate the picker's hour buttons from the configured set. The fixed
+  // ALLES/DATUM/PLEK tail is rebuilt too so order stays stable. Click
+  // handling is delegated on #winPick (below), so no rewiring is needed.
+  function rebuildWinPick() {
+    var opts = getWinOptions();
+    // A remembered window that is no longer offered falls back to 24h, or
+    // the first option when 24 itself was removed. ALLES (1000000) survives.
+    if (!customMode && !locationMode && currentHours !== 1000000 &&
+        opts.indexOf(currentHours) === -1) {
+      currentHours = opts.indexOf(24) !== -1 ? 24 : opts[0];
+      writeLS('bird:window', String(currentHours));
+    }
+    var html = '<i class="seg-pill" aria-hidden="true"></i>';
+    opts.forEach(function (h) {
+      html += '<button data-h="' + h + '" type="button">' + winBtnText(h) + '</button>';
     });
+    html += '<button data-h="1000000" type="button">ALLES</button>'
+         +  '<button data-h="custom" type="button">DATUM</button>'
+         +  '<button data-h="location" type="button">PLEK</button>';
+    winPick.innerHTML = html;
+    markWinCurrent();
+    syncPill(winPick);
+  }
+  function markWinCurrent() {
+    [].forEach.call(winPick.querySelectorAll('button'), function (b) {
+      var cur = customMode ? (b.dataset.h === 'custom')
+        : locationMode ? (b.dataset.h === 'location')
+        : (+b.dataset.h === currentHours);
+      b.setAttribute('aria-current', cur ? 'true' : 'false');
+    });
+  }
+  // Delegated so rebuildWinPick() can swap buttons without rewiring.
+  winPick.addEventListener('click', function (ev) {
+    var b = ev.target.closest('button');
+    if (!b) return;
+    winSerial++;
+    if (b.dataset.h === 'custom') {
+      customMode = true;
+      locationMode = false;
+      if (winRange) winRange.hidden = false;
+    } else if (b.dataset.h === 'location') {
+      customMode = false;
+      locationMode = true;
+      if (winRange) winRange.hidden = true;
+    } else {
+      customMode = false;
+      locationMode = false;
+      if (winRange) winRange.hidden = true;
+      currentHours = +b.dataset.h;
+      writeLS('bird:window', String(currentHours));
+    }
+    markWinCurrent();
+    syncPill(winPick);
+    refreshRecent(true);   // hoisted; defined with the data layer below
   });
+  rebuildWinPick();
   // Re-fetch when a custom date changes.
   [winFromEl, winToEl].forEach(function (el) {
     if (el) el.addEventListener('change', function () {
@@ -1031,16 +1095,18 @@
     return n < 1000 ? n.toLocaleString() : +(n / 1000).toFixed(1) + 'K';
   }
   // Human label for the current time-window picker selection - replaces
-  // a bare "window" with the span it actually covers. Thresholds match
-  // the winPick buttons (1H / 12H / 24H / 7D / ALL).
+  // a bare "window" with the span it actually covers. Handles any hour
+  // count since the picker's buttons are user-editable; the classic set
+  // (1/12/24/168/ALL) keeps its original wording.
   function windowLabel(h) {
     if (locationMode) return 'op deze plek';
     if (customMode) return customRangeLabel();
     if (h <= 1) return 'dit uur';
-    if (h <= 12) return 'afgelopen 12 u';
-    if (h <= 24) return 'vandaag';
-    if (h <= 168) return 'deze week';
-    return 'totaal';
+    if (h >= 1000000) return 'totaal';
+    if (h === 24) return 'vandaag';
+    if (h === 168) return 'deze week';
+    if (h % 24 === 0) return 'afgelopen ' + (h / 24) + ' dagen';
+    return 'afgelopen ' + h + ' u';
   }
   function shortDate(s) {                 // 'YYYY-MM-DD' -> 'D mmm' (Dutch)
     var m = (s || '').split('-');
@@ -1633,11 +1699,8 @@
   // animate=true so the collage blooms in on first load.
   refreshAll(true);
 
-  // Hook into the window picker so the data refetches on change. Pass
-  // animate=true so the collage blooms (the silent poll passes nothing).
-  winBtns.forEach(function (b) {
-    b.addEventListener('click', function () { refreshRecent(true); });
-  });
+  // Window-picker clicks refetch via the delegated #winPick handler above
+  // (refreshRecent(true) so the collage blooms; the silent poll passes nothing).
 
   // ---- Realtime polling ----
   // Every POLL_MS the page refetches the live data set so the collage,
@@ -2222,6 +2285,7 @@
       });
     });
     scope.querySelectorAll('.seg:not([data-theme-seg]):not([data-instant-seg])').forEach(function (seg) {
+      if (!seg.dataset.key) return;   // display-only seg, not a Pi setting
       seg.querySelectorAll('button').forEach(function (b) {
         b.addEventListener('click', function () {
           if (settingsSaving) return;
@@ -3195,6 +3259,21 @@
           +   '<div class="seg" data-instant-seg="smalltvwindow">'
           +     ['8h:8 uur', '24h:24 uur', '7d:7 dagen', 'location:deze plek'].map(function (o) { var p = o.split(':'); return '<button type="button" data-v="' + p[0] + '">' + p[1] + '</button>'; }).join('')
           +   '</div></div>'
+          // Tijdkiezer editor - which hour windows the collage picker offers.
+          // Device-local (like the theme), applies instantly, no Pi save.
+          + '<div class="menu-row menu-row-col" id="winOptsRow">'
+          +   '<div><span class="label">Tijdkiezer</span><span class="hint">knoppen in de tijdkiezer boven de collage &middot; op dit apparaat</span></div>'
+          +   '<div class="win-opts" id="winOptsChips"></div>'
+          +   '<div class="win-opts-add">'
+          +     '<input type="number" id="winOptVal" min="1" max="8760" step="1" placeholder="6" inputmode="numeric">'
+          +     '<div class="seg" id="winOptUnit" data-instant-seg="winoptunit">'
+          +       '<button type="button" data-v="h" aria-current="true">uur</button>'
+          +       '<button type="button" data-v="d" aria-current="false">dagen</button>'
+          +     '</div>'
+          +     '<button type="button" id="winOptAdd" class="win-opt-add-btn" aria-label="toevoegen">+</button>'
+          +     '<button type="button" id="winOptReset" class="win-opt-reset" hidden>standaard</button>'
+          +   '</div>'
+          + '</div>'
           + settingsToggle('preserve', 'Alle opnames bewaren', 'niet automatisch verwijderen', preserve)
           + settingsSlider('CONFIDENCE',  'Betrouwbaarheidsdrempel', 'min. score om een waarneming te loggen', v.CONFIDENCE,  0.1, 0.95, 0.05, 2)
           + settingsSlider('SENSITIVITY', 'Gevoeligheid',            'gevoeligheid van de analyser',           v.SENSITIVITY, 0.5, 1.5,  0.05, 2)
@@ -3238,6 +3317,67 @@
             });
           });
         }
+        // Tijdkiezer editor - chips for the current hour windows, an
+        // add control, and a reset. Applies instantly via setWinOptions().
+        (function () {
+          var chipsEl = document.getElementById('winOptsChips');
+          var valEl = document.getElementById('winOptVal');
+          var unitEl = document.getElementById('winOptUnit');
+          var addBtn = document.getElementById('winOptAdd');
+          var resetBtn = document.getElementById('winOptReset');
+          if (!chipsEl) return;
+          function renderChips() {
+            var opts = getWinOptions();
+            chipsEl.innerHTML = opts.map(function (h) {
+              // The last remaining window can't be removed - hide its x.
+              var x = opts.length > 1
+                ? '<button type="button" class="chip-x" data-del="' + h + '" aria-label="' + winBtnText(h) + ' verwijderen">&times;</button>'
+                : '';
+              return '<span class="win-chip">' + winBtnText(h) + x + '</span>';
+            }).join('')
+            + (opts.length >= WIN_MAX_OPTIONS
+                ? '<span class="win-chip-note">max ' + WIN_MAX_OPTIONS + '</span>' : '');
+            resetBtn.hidden = opts.join(',') === WIN_DEFAULT.join(',');
+            addBtn.disabled = opts.length >= WIN_MAX_OPTIONS;
+          }
+          chipsEl.addEventListener('click', function (ev) {
+            var x = ev.target.closest('button[data-del]');
+            if (!x) return;
+            var opts = getWinOptions().filter(function (h) { return h !== +x.dataset.del; });
+            if (opts.length) { setWinOptions(opts); renderChips(); }
+          });
+          function addWindow() {
+            var n = Math.floor(+valEl.value);
+            if (!isFinite(n) || n < 1) { valEl.focus(); return; }
+            var unit = unitEl.querySelector('button[aria-current="true"]');
+            var h = (unit && unit.dataset.v === 'd') ? n * 24 : n;
+            if (h > WIN_MAX_HOURS) h = WIN_MAX_HOURS;
+            var opts = getWinOptions();
+            if (opts.indexOf(h) === -1 && opts.length < WIN_MAX_OPTIONS) {
+              opts.push(h);
+              opts.sort(function (a, b) { return a - b; });
+              setWinOptions(opts);
+            }
+            valEl.value = '';
+            renderChips();
+          }
+          addBtn.addEventListener('click', addWindow);
+          valEl.addEventListener('keydown', function (ev) {
+            if (ev.key === 'Enter') { ev.preventDefault(); addWindow(); }
+          });
+          unitEl.addEventListener('click', function (ev) {
+            var b = ev.target.closest('button');
+            if (!b) return;
+            unitEl.querySelectorAll('button').forEach(function (x) {
+              x.setAttribute('aria-current', x === b ? 'true' : 'false');
+            });
+          });
+          resetBtn.addEventListener('click', function () {
+            setWinOptions(WIN_DEFAULT.slice());
+            renderChips();
+          });
+          renderChips();
+        })();
         // Theme switcher applies + persists immediately (separate from the
         // Pi config save below).
         var themeSeg = adminBody.querySelector('[data-theme-seg]');
