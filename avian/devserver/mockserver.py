@@ -76,6 +76,24 @@ def now_iso():
     return datetime.now(timezone.utc).astimezone().isoformat()
 
 
+# Pi-wide livestream-encoder switch (birdnet-status.php?action=livestream).
+# In-memory bool standing in for `systemctl is-enabled livestream`.
+_LIVESTREAM = {"enabled": True}
+
+
+def names_payload(lang):
+    # Mirrors birdnet-api.php action=names: the real l18n labels file,
+    # filtered to the species "in the DB" (our mock list).
+    labels_path = os.path.join(HERE, "..", "..", "model", "l18n", f"labels_{lang}.json")
+    if not os.path.isfile(labels_path):
+        return None
+    with open(labels_path, encoding="utf-8") as f:
+        labels = json.load(f)
+    return {"lang": lang,
+            "names": {sci: labels[sci] for sci, _, _ in SPECIES if sci in labels},
+            "as_of": now_iso()}
+
+
 def recent_payload(hours=24, location=False):
     base = datetime.now()
     species = []
@@ -420,6 +438,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(species_payload(q.get("sci", [""])[0]))
             if action == "mapconfig":
                 return self._json({"stadia_key": ""})   # blank -> basemap degrades gracefully
+            if action == "names":
+                lang = q.get("lang", ["en"])[0]
+                payload = names_payload(lang)
+                if payload is None:
+                    return self._json({"error": f"no labels for '{lang}'"}, 404)
+                return self._json(payload)
             # GATED actions: locations / journey reveal where you are
             if action in ("locations", "journey"):
                 if role == ROLE_ANON:
@@ -512,6 +536,11 @@ class Handler(BaseHTTPRequestHandler):
                                    "lines": ["[mock] service log line 1", "[mock] line 2"]})
             if action == "restart":
                 return self._json({"ok": True})
+            if action == "livestream":
+                if self.command == "POST":
+                    _LIVESTREAM["enabled"] = q.get("on", ["1"])[0] == "1"
+                return self._json({"enabled": _LIVESTREAM["enabled"],
+                                   "active": _LIVESTREAM["enabled"]})
             return self._json({"services": [
                 {"unit": "birdnet_analysis", "active": True, "sub": "running"},
                 {"unit": "birdnet_recording", "active": True, "sub": "running"}],

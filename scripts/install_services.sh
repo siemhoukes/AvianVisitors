@@ -406,6 +406,8 @@ caddy ALL=(root) NOPASSWD: \\
     /bin/systemctl restart birdnet_stats, \\
     /bin/systemctl restart spectrogram_viewer, \\
     /bin/systemctl restart livestream, \\
+    /bin/systemctl enable --now livestream, \\
+    /bin/systemctl disable --now livestream, \\
     /bin/systemctl restart icecast2, \\
     /bin/systemctl restart caddy, \\
     /bin/cp /tmp/avian_config_* /etc/birdnet/birdnet.conf, \\

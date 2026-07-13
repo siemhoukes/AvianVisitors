@@ -8,6 +8,7 @@
 //   services  - status of every birdnet_* unit + caddy + php-fpm
 //   logs      - &unit=<name>&lines=N: last N lines of that unit's journal
 //   restart   - GET/POST &unit=<name>: restart a single service (whitelisted)
+//   livestream- GET: encoder state; POST &on=1|0: enable/disable --now
 //   diag      - everything in one go (system + services + recent logs)
 //
 // Default LAN deploy: returns data immediately, no auth.
@@ -326,6 +327,31 @@ switch ($action) {
             'ok'   => $rc === 0,
             'rc'   => $rc,
             'out'  => implode("\n", $out),
+        ]);
+        break;
+    }
+
+    case 'livestream': {
+        // The "thorough" mic switch: beyond hiding the player client-side,
+        // this stops the always-on ffmpeg->icecast encoder on the Pi (and
+        // disables the unit so a reboot doesn't bring it back). Detection
+        // is untouched - birdnet_recording has its own capture process.
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $want_on = (($_GET['on'] ?? '') === '1');
+            $verb = $want_on ? 'enable' : 'disable';
+            // Sudoers: pinned in /etc/sudoers.d/020_avian-admin (and the
+            // upstream 010 rule already grants caddy NOPASSWD: ALL).
+            $rc = 0; $out = [];
+            exec('sudo /bin/systemctl ' . $verb . ' --now livestream 2>&1', $out, $rc);
+            if ($rc !== 0) {
+                http_response_code(500);
+                echo json_encode(['error' => 'systemctl failed', 'rc' => $rc, 'out' => implode("\n", $out)]);
+                break;
+            }
+        }
+        echo json_encode([
+            'enabled' => trim(shellout('systemctl is-enabled livestream')) === 'enabled',
+            'active'  => trim(shellout('systemctl is-active livestream')) === 'active',
         ]);
         break;
     }

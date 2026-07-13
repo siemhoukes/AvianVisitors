@@ -9,6 +9,7 @@
 //   species     - &sci=<sci_name>: per-species detail page
 //   timeseries  - &days=N: daily detection counts per species
 //   firstseen   - every species' earliest detection
+//   names       - &lang=xx: {sci: common} for detected species (l18n labels)
 //
 // Detection *counts* everywhere are "moments", not raw rows: a species'
 // consecutive detections within a silence gap collapse into one episode, so a
@@ -334,6 +335,39 @@ switch ($action) {
         . "FROM moments GROUP BY Sci_Name ORDER BY first_seen ASC"
         );
         echo json_encode(['species' => $rs, 'as_of' => date('c')]);
+        break;
+    }
+
+    case 'names': {
+        // Common names for every species in the DB, in the requested
+        // language: {sci: common}. Source is the model's own l18n label
+        // set (model/l18n/labels_<lang>.json, sci -> common). Powers the
+        // per-device "Vogelnamen" language switch in the frontend - the
+        // DB's Com_Name stays whatever DATABASE_LANG produced.
+        $lang = (string)($_GET['lang'] ?? 'en');
+        if (!preg_match('/^[a-z]{2}$/', $lang)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'bad lang']);
+            break;
+        }
+        $labels_path = dirname(__DIR__, 2) . "/model/l18n/labels_$lang.json";
+        if (!is_readable($labels_path)) {
+            http_response_code(404);
+            echo json_encode(['error' => "no labels for '$lang'"]);
+            break;
+        }
+        $labels = json_decode((string)file_get_contents($labels_path), true);
+        if (!is_array($labels)) {
+            http_response_code(500);
+            echo json_encode(['error' => 'labels file unreadable']);
+            break;
+        }
+        $names = [];
+        foreach (rows($db, 'SELECT DISTINCT Sci_Name AS sci FROM detections') as $r) {
+            $sci = (string)$r['sci'];
+            if (isset($labels[$sci])) $names[$sci] = $labels[$sci];
+        }
+        echo json_encode(['lang' => $lang, 'names' => (object)$names, 'as_of' => date('c')]);
         break;
     }
 
