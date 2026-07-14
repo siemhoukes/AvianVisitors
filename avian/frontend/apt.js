@@ -3192,6 +3192,7 @@
     logs: 'Logboek',
     tools: 'Hulpmiddelen',
     moderation: 'Waarnemingen beheren',
+    clock: 'Vogelklok',
   };
   function adminEsc(s) {
     return String(s == null ? '' : s)
@@ -3235,6 +3236,7 @@
     else if (section === 'system') renderAdminSystem();
     else if (section === 'live') renderAdminLive();
     else if (section === 'history') renderAdminHistory();
+    else if (section === 'clock') renderAdminClock();
     else if (section === 'logs') renderAdminLogs();
     else if (section === 'tools') renderAdminTools();
     else if (section === 'moderation') renderAdminModeration();
@@ -3820,6 +3822,169 @@
     });
     load();
     adminPollT = setInterval(load, 60000);
+  }
+
+  function renderAdminClock() {
+    // Vogelklok: a 24-hour dial over the detection history (action=rhythm
+    // returns the full n(species, hour) matrix; everything else is derived
+    // client-side). Two directions, one screen:
+    //   - no species selected: dial = all activity; tap an hour to see who
+    //     sings then, ranked by share of that hour  (P(species | hour))
+    //   - species selected (tap a bird row, or the dropdown): dial = that
+    //     bird's day-rhythm; list = its best hours   (P(hour | species))
+    // Deliberately NOT in the drawer menu yet - reachable via /#admin=clock.
+    var clk = { data: null, days: 0, sci: null, hour: new Date().getHours() };
+    adminBody.innerHTML =
+      '<div class="admin-logs-toolbar clk-toolbar">'
+      + '  <select id="clkSpecies"><option value="">alle soorten</option></select>'
+      + '  <div class="seg" id="clkDaysSeg">'
+      + '    <button type="button" data-v="7">7 dagen</button>'
+      + '    <button type="button" data-v="30">30 dagen</button>'
+      + '    <button type="button" data-v="0" aria-current="true">alles</button>'
+      + '  </div>'
+      + '</div>'
+      + '<div class="clk-wrap"><svg id="clkDial" viewBox="0 0 320 320" role="img" aria-label="vogelklok"></svg></div>'
+      + '<p class="clk-hint" id="clkHint"></p>'
+      + '<div class="live-feed clk-list" id="clkList"><div class="live-empty">klok laden...</div></div>';
+    var dial = document.getElementById('clkDial');
+    var listEl = document.getElementById('clkList');
+    var hintEl = document.getElementById('clkHint');
+    var selEl = document.getElementById('clkSpecies');
+
+    function pad2(h) { return (h < 10 ? '0' : '') + h; }
+    function hourLabel(h) { return pad2(h) + ':00'; }
+    function polar(r, deg) {
+      var rad = (deg - 90) * Math.PI / 180;
+      return [160 + r * Math.cos(rad), 160 + r * Math.sin(rad)];
+    }
+    function wedgePath(r0, r1, a0, a1) {
+      var p1 = polar(r0, a0), p2 = polar(r1, a0), p3 = polar(r1, a1), p4 = polar(r0, a1);
+      return 'M' + p1 + ' L' + p2 + ' A' + r1 + ' ' + r1 + ' 0 0 1 ' + p3
+        + ' L' + p4 + ' A' + r0 + ' ' + r0 + ' 0 0 0 ' + p1 + ' Z';
+    }
+    function speciesEntry(sci) {
+      if (!clk.data || !sci) return null;
+      for (var i = 0; i < clk.data.species.length; i++) {
+        if (clk.data.species[i].sci === sci) return clk.data.species[i];
+      }
+      return null;
+    }
+    function drawDial() {
+      var sp = speciesEntry(clk.sci);
+      var vals = sp ? sp.hours : (clk.data ? clk.data.total_by_hour : []);
+      var max = 1;
+      for (var i = 0; i < vals.length; i++) max = Math.max(max, vals[i]);
+      var svg = '';
+      for (var h = 0; h < 24; h++) {
+        var a0 = h * 15 + 1, a1 = (h + 1) * 15 - 1;
+        var sel = !sp && h === clk.hour;
+        svg += '<path d="' + wedgePath(72, 130, a0, a1) + '" class="clk-wedge" data-h="' + h + '"'
+          + ' fill="#5a7a3a" fill-opacity="' + (0.07 + 0.9 * ((vals[h] || 0) / max)).toFixed(3) + '"'
+          + (sel ? ' stroke="var(--ink)" stroke-width="1.6"' : '') + '/>';
+      }
+      [0, 6, 12, 18].forEach(function (h) {
+        var p = polar(146, h * 15 + 7.5);
+        svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">' + hourLabel(h) + '</text>';
+      });
+      // "now" needle across the ring
+      var now = new Date();
+      var nowDeg = (now.getHours() + now.getMinutes() / 60) * 15 + 7.5;
+      var n0 = polar(64, nowDeg), n1 = polar(136, nowDeg);
+      svg += '<line x1="' + n0[0].toFixed(1) + '" y1="' + n0[1].toFixed(1) + '" x2="' + n1[0].toFixed(1) + '" y2="' + n1[1].toFixed(1) + '" class="clk-now"/>';
+      // center caption
+      var capTop = sp ? dispName(sp.sci, sp.com) : hourLabel(clk.hour) + '–' + hourLabel((clk.hour + 1) % 24);
+      var capSub = sp ? sp.n + '× totaal' : ((clk.data && clk.data.total_by_hour[clk.hour] || 0) + '× in dit uur');
+      svg += '<text x="160" y="155" class="clk-cap" text-anchor="middle">' + adminEsc(capTop) + '</text>'
+        + '<text x="160" y="172" class="clk-sub" text-anchor="middle">' + capSub + '</text>';
+      dial.innerHTML = svg;
+    }
+    function listRow(rank, name, pct, sub, sci) {
+      return '<div class="live-row clk-row"' + (sci ? ' data-sci="' + adminEsc(sci) + '"' : '') + '>'
+        + '<span class="lt">' + rank + '</span>'
+        + '<span class="ln">' + adminEsc(name) + '</span>'
+        + '<span class="lb"><i style="width:' + Math.min(100, Math.round(pct)) + '%"></i></span>'
+        + '<span class="lp">' + Math.round(pct) + '%</span>'
+        + '<span class="ls">' + sub + '</span>'
+        + '</div>';
+    }
+    function drawList() {
+      if (!clk.data) return;
+      var sp = speciesEntry(clk.sci);
+      if (sp) {
+        // P(hour | species): when do I hear this bird?
+        var hrs = [];
+        for (var h = 0; h < 24; h++) if (sp.hours[h] > 0) hrs.push(h);
+        hrs.sort(function (a, b) { return sp.hours[b] - sp.hours[a]; });
+        hintEl.textContent = 'beste uren voor deze soort - tik op een andere soort of kies "alle soorten"';
+        listEl.innerHTML = hrs.slice(0, 10).map(function (h, i) {
+          var share = 100 * sp.hours[h] / sp.n;
+          return listRow(i + 1, hourLabel(h) + '–' + hourLabel((h + 1) % 24), share,
+            sp.hours[h] + '× (' + Math.round(share) + '% van alle waarnemingen)');
+        }).join('') || '<div class="live-empty">nog geen waarnemingen</div>';
+      } else {
+        // P(species | hour): who sings at the selected hour?
+        var tot = clk.data.total_by_hour[clk.hour] || 0;
+        var rowsArr = clk.data.species
+          .filter(function (s) { return s.hours[clk.hour] > 0; })
+          .sort(function (a, b) { return b.hours[clk.hour] - a.hours[clk.hour]; });
+        hintEl.textContent = 'tik op een uur in de klok, of op een vogel voor zijn dagritme';
+        listEl.innerHTML = rowsArr.slice(0, 15).map(function (s, i) {
+          var share = tot ? 100 * s.hours[clk.hour] / tot : 0;
+          return listRow(i + 1, dispName(s.sci, s.com), share,
+            s.hours[clk.hour] + '× om dit uur · ' + Math.round(share) + '% van uur-activiteit', s.sci);
+        }).join('') || '<div class="live-empty">nog niets gehoord om ' + hourLabel(clk.hour) + '</div>';
+      }
+    }
+    function fillSelect() {
+      var opts = clk.data.species.slice()
+        .sort(function (a, b) { return dispName(a.sci, a.com).localeCompare(dispName(b.sci, b.com), 'nl'); })
+        .map(function (s) {
+          return '<option value="' + adminEsc(s.sci) + '"' + (s.sci === clk.sci ? ' selected' : '') + '>'
+            + adminEsc(dispName(s.sci, s.com)) + ' (' + s.n + ')</option>';
+        }).join('');
+      selEl.innerHTML = '<option value="">alle soorten</option>' + opts;
+    }
+    function redraw() { drawDial(); drawList(); }
+    function load() {
+      adminApi('./avian/api/birdnet-api.php?action=rhythm' + (clk.days ? '&days=' + clk.days : ''))
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (j) {
+          clk.data = j;
+          if (clk.sci && !speciesEntry(clk.sci)) clk.sci = null;
+          fillSelect();
+          redraw();
+        })
+        .catch(function () {
+          listEl.innerHTML = '<div class="live-empty">pi onbereikbaar</div>';
+        });
+    }
+    dial.addEventListener('click', function (ev) {
+      var w = ev.target.closest('.clk-wedge');
+      if (!w) return;
+      clk.hour = +w.getAttribute('data-h');
+      if (clk.sci) { clk.sci = null; fillSelect(); }   // wedge tap returns to hour mode
+      redraw();
+    });
+    listEl.addEventListener('click', function (ev) {
+      var row = ev.target.closest('.clk-row[data-sci]');
+      if (!row) return;
+      clk.sci = row.getAttribute('data-sci');
+      fillSelect();
+      redraw();
+    });
+    selEl.addEventListener('change', function () {
+      clk.sci = selEl.value || null;
+      redraw();
+    });
+    document.getElementById('clkDaysSeg').addEventListener('click', function (ev) {
+      var b = ev.target.closest('button'); if (!b) return;
+      clk.days = +b.getAttribute('data-v') || 0;
+      this.querySelectorAll('button').forEach(function (x) {
+        x.setAttribute('aria-current', x === b ? 'true' : 'false');
+      });
+      load();
+    });
+    load();
   }
 
   function renderAdminTools() {

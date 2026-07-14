@@ -1270,6 +1270,27 @@
   }
   .live-row.st-quiet, .live-row.st-human { opacity: .5; }
   .live-feed.hide-quiet .live-row.st-quiet { display: none; }
+  /* Vogelklok (#admin=clock, hidden page) - 24h activity dial */
+  .clk-toolbar { flex-wrap: wrap; }
+  .clk-toolbar select { max-width: 220px; }
+  .clk-wrap { display: flex; justify-content: center; }
+  #clkDial { width: min(340px, 88vw); height: auto; }
+  #clkDial .clk-wedge { cursor: pointer; }
+  #clkDial .clk-wedge:hover { stroke: var(--ink-soft); stroke-width: 1; }
+  #clkDial .clk-lbl {
+    font: 9px ui-monospace, Menlo, monospace; fill: var(--ink-soft);
+    letter-spacing: 0.06em;
+  }
+  #clkDial .clk-cap { font: 700 14px ui-serif, Georgia, serif; fill: var(--ink); }
+  #clkDial .clk-sub { font: 9.5px ui-monospace, Menlo, monospace; fill: var(--ink-soft); }
+  #clkDial .clk-now { stroke: var(--accent); stroke-width: 1.5; opacity: .75; }
+  .clk-hint {
+    margin: 6px 0 10px; text-align: center;
+    font: 10px ui-monospace, Menlo, monospace; color: var(--ink-soft);
+    letter-spacing: 0.04em;
+  }
+  .clk-list .clk-row[data-sci] { cursor: pointer; }
+  .clk-list .clk-row[data-sci]:hover .ln { text-decoration: underline; text-underline-offset: 2px; }
   /* Admin moderation ("waarnemingen beheren") - hide/unhide list. Rows reuse
      the SAME .rec-row markup (+ real spectrogram) as the species-detail
      modal's recordings list - see wireRecRowClicks/wireRecRowScrub in

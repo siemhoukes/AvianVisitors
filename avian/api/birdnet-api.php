@@ -174,6 +174,10 @@ function av_moments_date_filter(string $action): string {
         $days = max(1, min(90, (int)($_GET['days'] ?? 30)));
         // by_hour looks back 30 days regardless of the daily window.
         return "Date >= date('now', 'localtime', '-" . (max($days, 30) + 1) . " day')";
+    } elseif ($action === 'rhythm') {
+        // days=0 (or absent) = all time; otherwise narrow the scan.
+        $days = max(0, min(365, (int)($_GET['days'] ?? 0)));
+        if ($days > 0) return "Date >= date('now', 'localtime', '-" . ($days + 1) . " day')";
     }
     return '';
 }
@@ -335,6 +339,50 @@ switch ($action) {
         . "FROM moments GROUP BY Sci_Name ORDER BY first_seen ASC"
         );
         echo json_encode(['species' => $rs, 'as_of' => date('c')]);
+        break;
+    }
+
+    case 'rhythm': {
+        // Statistical backbone for the Vogelklok: how many moments each
+        // species has per hour-of-day. A moment is stamped with the hour
+        // it STARTED (MIN time within the moment). The client derives
+        // both directions from this one matrix:
+        //   P(species | hour) = hours[h] / total_by_hour[h]  ("wie zingt nu?")
+        //   P(hour | species) = hours[h] / n                 ("wanneer hoor ik X?")
+        // days=0/absent = all time; the date narrowing itself happens in
+        // av_moments_date_filter (feeds the moments temp table above).
+        $days = max(0, min(365, (int)($_GET['days'] ?? 0)));
+        $rs = rows($db,
+          "SELECT sci, MAX(com) AS com, hr, COUNT(*) AS n FROM ("
+        . "  SELECT Sci_Name AS sci, MAX(Com_Name) AS com, moment_id, "
+        . "         CAST(strftime('%H', MIN(Date || ' ' || Time)) AS INTEGER) AS hr "
+        . "  FROM moments GROUP BY Sci_Name, moment_id"
+        . ") GROUP BY sci, hr"
+        );
+        $bySci = [];
+        $totalByHour = array_fill(0, 24, 0);
+        foreach ($rs as $r) {
+            $sci = (string)$r['sci'];
+            $hr = max(0, min(23, (int)$r['hr']));
+            $n = (int)$r['n'];
+            if (!isset($bySci[$sci])) {
+                $bySci[$sci] = ['sci' => $sci, 'com' => (string)($r['com'] ?? ''),
+                                'n' => 0, 'hours' => array_fill(0, 24, 0)];
+            }
+            $bySci[$sci]['hours'][$hr] += $n;
+            $bySci[$sci]['n'] += $n;
+            $totalByHour[$hr] += $n;
+        }
+        $species = array_values($bySci);
+        usort($species, function ($a, $b) { return $b['n'] <=> $a['n']; });
+        $first = one($db, "SELECT MIN(Date) AS d FROM moments");
+        echo json_encode([
+            'species' => $species,
+            'total_by_hour' => $totalByHour,
+            'days' => $days ?: null,
+            'since' => $first['d'] ?? null,
+            'as_of' => date('c'),
+        ]);
         break;
     }
 

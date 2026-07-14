@@ -301,6 +301,42 @@ def moderation_payload(q, limit, offset):
     return {"moments": out, "total": total, "limit": limit, "offset": offset, "as_of": now_iso()}
 
 
+# Hour-of-day activity peaks per species (hour, width, weight) - shapes the
+# synthetic Vogelklok rhythm data so dawn chorus / midday doves / an evening
+# robin are all visible offline.
+_RHYTHM_PEAKS = {
+    "Turdus merula":        [(5.5, 1.5, 1.0), (21.0, 1.2, 0.7)],
+    "Parus major":          [(7.0, 2.0, 1.0)],
+    "Erithacus rubecula":   [(5.0, 1.2, 0.8), (20.5, 1.5, 1.0)],
+    "Fringilla coelebs":    [(8.0, 2.5, 1.0)],
+    "Passer domesticus":    [(9.0, 5.0, 0.8), (16.0, 4.0, 0.8)],
+    "Carduelis carduelis":  [(12.0, 3.0, 1.0)],
+    "Columba palumbus":     [(8.0, 2.0, 0.9), (15.0, 3.0, 1.0)],
+    "Cyanistes caeruleus":  [(7.5, 2.0, 1.0)],
+}
+
+
+def rhythm_payload(days):
+    species = []
+    total_by_hour = [0] * 24
+    for sci, com, weight in SPECIES:
+        peaks = _RHYTHM_PEAKS.get(sci, [(10.0, 4.0, 1.0)])
+        hours = []
+        for h in range(24):
+            v = 0.0
+            for (mu, sigma, w) in peaks:
+                d = min(abs(h - mu), 24 - abs(h - mu))   # wrap around midnight
+                v += w * math.exp(-(d * d) / (2 * sigma * sigma))
+            hours.append(int(round(v * weight * 3)))
+        n = sum(hours)
+        for h in range(24):
+            total_by_hour[h] += hours[h]
+        species.append({"sci": sci, "com": com, "n": n, "hours": hours})
+    species.sort(key=lambda s: -s["n"])
+    return {"species": species, "total_by_hour": total_by_hour,
+            "days": days or None, "since": "2026-06-18", "as_of": now_iso()}
+
+
 def locations_payload():
     """GATED: compatibility endpoint, now backed by the reisschema."""
     return {"locations": schedule_state()["schedule"], "as_of": now_iso()}
@@ -522,6 +558,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(public[action]())
             if action == "species":
                 return self._json(species_payload(q.get("sci", [""])[0]))
+            if action == "rhythm":
+                return self._json(rhythm_payload(int(q.get("days", ["0"])[0] or 0)))
             if action == "mapconfig":
                 return self._json({"stadia_key": ""})   # blank -> basemap degrades gracefully
             if action == "names":
