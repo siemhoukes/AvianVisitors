@@ -3188,6 +3188,7 @@
     settings: 'Instellingen',
     system: 'Systeem',
     live: 'Live analyse',
+    history: 'Historie',
     logs: 'Logboek',
     tools: 'Hulpmiddelen',
     moderation: 'Waarnemingen beheren',
@@ -3233,6 +3234,7 @@
     if (section === 'settings') renderAdminSettings();
     else if (section === 'system') renderAdminSystem();
     else if (section === 'live') renderAdminLive();
+    else if (section === 'history') renderAdminHistory();
     else if (section === 'logs') renderAdminLogs();
     else if (section === 'tools') renderAdminTools();
     else if (section === 'moderation') renderAdminModeration();
@@ -3758,6 +3760,66 @@
     }
     tick();
     adminPollT = setInterval(tick, 3000);
+  }
+
+  function renderAdminHistory() {
+    // Leaderboard over the stored guess history (the same JSONL behind
+    // Live analyse): which species did the model hear in the chosen
+    // window, its best score, and how often it cleared CONFIDENCE.
+    // Species that produced a real detection get the green/bold accent.
+    var hours = +readLS('bird:histHours', '24') || 24;
+    var WINDOWS = [['3', '3 uur'], ['12', '12 uur'], ['24', '24 uur'], ['72', '3 dagen']];
+    adminBody.innerHTML =
+      '<div class="admin-logs-toolbar"><label>periode</label>'
+      + '<div class="seg" id="histSeg">'
+      + WINDOWS.map(function (w) {
+          return '<button type="button" data-v="' + w[0] + '" aria-current="'
+            + (+w[0] === hours ? 'true' : 'false') + '">' + w[1] + '</button>';
+        }).join('')
+      + '</div></div>'
+      + '<div class="live-feed" id="histList"><div class="live-empty">historie laden...</div></div>';
+    var list = document.getElementById('histList');
+    var seg = document.getElementById('histSeg');
+    function histRow(s, i) {
+      var conf = +s.best || 0;
+      var sub = s.n + '× geraden'
+        + (s.n_confident ? ' · ' + s.n_confident + '× boven drempel' : '')
+        + (s.last ? ' · laatst ' + adminEsc(String(s.last).slice(11, 16)) : '');
+      return '<div class="live-row' + (s.n_confident ? ' st-confident' : '') + '">'
+        + '<span class="lt">' + (i + 1) + '</span>'
+        + '<span class="ln">' + adminEsc(dispName(s.sci, s.com)) + '</span>'
+        + '<span class="lb"><i style="width:' + Math.min(100, Math.round(conf * 100)) + '%"></i></span>'
+        + '<span class="lp">' + Math.round(conf * 100) + '%</span>'
+        + '<span class="ls">' + sub + '</span>'
+        + '</div>';
+    }
+    function load() {
+      adminApi('./avian/api/guesses.php?op=species&hours=' + hours)
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (j) {
+          var sp = j.species || [];
+          if (!sp.length) {
+            list.innerHTML = '<div class="live-empty">niets gehoord in deze periode</div>';
+            return;
+          }
+          list.innerHTML = sp.map(histRow).join('');
+        })
+        .catch(function () {
+          list.innerHTML = '<div class="live-empty">pi onbereikbaar</div>';
+        });
+    }
+    seg.addEventListener('click', function (ev) {
+      var b = ev.target.closest('button'); if (!b) return;
+      hours = +b.getAttribute('data-v') || 24;
+      writeLS('bird:histHours', String(hours));
+      seg.querySelectorAll('button').forEach(function (x) {
+        x.setAttribute('aria-current', x === b ? 'true' : 'false');
+      });
+      list.innerHTML = '<div class="live-empty">historie laden...</div>';
+      load();
+    });
+    load();
+    adminPollT = setInterval(load, 60000);
   }
 
   function renderAdminTools() {

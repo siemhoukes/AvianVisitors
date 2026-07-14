@@ -542,6 +542,7 @@ class Handler(BaseHTTPRequestHandler):
                 {"label": "settings", "href": "/#admin=settings", "native": True},
                 {"label": "system", "href": "/#admin=system", "native": True},
                 {"label": "live", "href": "/#admin=live", "native": True},
+                {"label": "history", "href": "/#admin=history", "native": True},
                 {"label": "logs", "href": "/#admin=logs", "native": True},
                 {"label": "tools", "href": "/#admin=tools", "native": True},
             ]})

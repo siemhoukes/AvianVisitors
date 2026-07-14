@@ -112,6 +112,9 @@ if ($op === 'species') {
             $rec = json_decode($line, true);
             if (!is_array($rec) || !isset($rec['t'], $rec['top'][0])) continue;
             if (strcmp($rec['t'], $cutoff) < 0) continue;
+            // quiet slots are near-silence noise-matches; they'd flood the
+            // leaderboard with 2% junk species (mockserver skips them too)
+            if (($rec['status'] ?? '') === 'quiet') continue;
             $top = $rec['top'][0];
             $sci = $top['sci'] ?? '';
             if ($sci === '' || $sci === 'Human_Human') continue;
