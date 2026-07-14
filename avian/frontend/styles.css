@@ -1302,9 +1302,54 @@
     padding: 20px; text-align: center;
     font: 11px/1.5 ui-serif, Georgia, serif; color: var(--ink-soft);
   }
+  /* second toolbar row: filter (alles/onzeker/verborgen) + sort segs */
+  .mod-toolbar2 {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    margin: -4px 0 12px;
+  }
+  /* species name doubles as a filter shortcut */
+  .mod-name {
+    border: 0; background: none; padding: 0; margin: 0;
+    font: inherit; color: inherit; cursor: pointer; text-align: left;
+  }
+  .mod-name:hover { text-decoration: underline; text-underline-offset: 2px; }
+  .mod-tag { color: #a8341d; font-weight: 600; font-style: normal; }
+  :root[data-theme="dark"] .mod-tag { color: #d08770; }
+  /* confidence: percentage + mini bar, color-coded by score band.
+     Stays visible on phones - the score is the whole point here. */
+  .mod-conf {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+    width: 64px;
+    font: 11px ui-monospace, Menlo, monospace; color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .mod-conf .mcb {
+    width: 100%; height: 4px; border-radius: 2px;
+    background: var(--paper); overflow: hidden;
+  }
+  .mod-conf .mcb i { display: block; height: 100%; border-radius: 2px; }
+  .mod-conf[data-lvl="hi"] .mcb i { background: #5a7a3a; }
+  .mod-conf[data-lvl="mid"] .mcb i { background: var(--ink-soft); }
+  .mod-conf[data-lvl="lo"] .mcb i { background: #a8341d; }
+  .mod-conf u { text-decoration: none; }
+  /* single-species bulk bar (appears via search / species-name tap) */
+  .mod-bulk {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; flex-wrap: wrap; padding: 9px 12px; border-radius: 8px;
+    background: var(--paper-2); box-shadow: var(--raised);
+    font: 10.5px ui-monospace, Menlo, monospace; color: var(--ink-2);
+  }
+  .mod-bulk-btns { display: flex; gap: 6px; }
+  .mod-bulk button {
+    font: 9.5px ui-monospace, Menlo, monospace; letter-spacing: 0.04em;
+    padding: 5px 10px; border: 0; border-radius: 999px; cursor: pointer;
+    background: var(--paper); color: var(--ink); box-shadow: var(--raised);
+  }
+  .mod-bulk button:hover { color: var(--accent); }
+  .mod-bulk button[disabled] { opacity: .5; cursor: wait; }
   @media (max-width: 560px) {
     #modList .rec-row { grid-template-columns: 24px 1fr auto auto; }
-    .mod-row .conf { display: none; }
+    .mod-conf { width: 46px; font-size: 10px; }
   }
 
   .admin-actions-grid {

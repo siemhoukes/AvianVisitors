@@ -266,10 +266,14 @@ def moderation_moments():
             t = base - timedelta(hours=i * 3 + k * 7, minutes=k * 5)
             rowids = [rid, rid + 1] if k == 1 else [rid]
             rid += len(rowids)
+            # Deterministic spread across the score bands (0.51 .. 0.97) so
+            # the moderation "onzeker" filter and the color-coded bars are
+            # all exercisable offline.
+            conf = 0.51 + ((i * 37 + k * 53) % 47) / 100.0
             out.append({
                 "sci": sci, "com": com,
                 "file": f"{sci.replace(' ', '_')}-{i}-{k}.wav",
-                "best_conf": round(0.93 - k * 0.08, 4),
+                "best_conf": round(conf, 4),
                 "first_seen": t.strftime("%Y-%m-%d %H:%M:%S"),
                 "last_seen": t.strftime("%Y-%m-%d %H:%M:%S"),
                 "n": len(rowids),
@@ -291,8 +295,9 @@ def moderation_payload(q, limit, offset):
     page = moments[offset:offset + limit]
     out = []
     for m in page:
-        hidden = all(r in _HIDDEN_ROWIDS for r in m["rowids"])
-        out.append(dict(m, hidden=hidden))
+        hits = sum(1 for r in m["rowids"] if r in _HIDDEN_ROWIDS)
+        out.append(dict(m, hidden=hits == len(m["rowids"]),
+                        partially_hidden=0 < hits < len(m["rowids"])))
     return {"moments": out, "total": total, "limit": limit, "offset": offset, "as_of": now_iso()}
 
 

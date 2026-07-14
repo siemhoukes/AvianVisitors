@@ -3918,19 +3918,43 @@
   // The whole set is loaded once (moments are already collapsed + this is a
   // personal deployment, not a big dataset) rather than re-querying per
   // keystroke.
-  var modState = null;   // { all } - reset per open
+  var modState = null;   // { all, filter, sort, lastRows } - reset per open
+  var MOD_UNSURE = 0.75; // "onzeker" filter: best score below this
   function modEsc(s) { return adminEsc(s); }
   function renderAdminModeration() {
-    modState = { all: [] };
+    modState = { all: [], filter: 'alles', sort: 'nieuw', lastRows: [] };
     adminBody.innerHTML =
       '<div class="mod-toolbar">'
       + '  <input type="search" id="modSearch" placeholder="zoek op vogelnaam...">'
       + '  <span class="mod-count" id="modCount"></span>'
       + '</div>'
+      + '<div class="mod-toolbar2">'
+      + '  <div class="seg" id="modFilterSeg">'
+      + '    <button type="button" data-v="alles" aria-current="true">alles</button>'
+      + '    <button type="button" data-v="onzeker">onzeker</button>'
+      + '    <button type="button" data-v="verborgen">verborgen</button>'
+      + '  </div>'
+      + '  <div class="seg" id="modSortSeg">'
+      + '    <button type="button" data-v="nieuw" aria-current="true">nieuw</button>'
+      + '    <button type="button" data-v="score">score</button>'
+      + '    <button type="button" data-v="soort">a&ndash;z</button>'
+      + '  </div>'
+      + '</div>'
       + '<ol class="mod-list" id="modList"></ol>';
-    document.getElementById('modSearch').addEventListener('input', modApplySearch);
+    document.getElementById('modSearch').addEventListener('input', modApplyView);
+    ['modFilterSeg', 'modSortSeg'].forEach(function (id) {
+      var seg = document.getElementById(id);
+      seg.addEventListener('click', function (ev) {
+        var b = ev.target.closest('button'); if (!b) return;
+        modState[id === 'modFilterSeg' ? 'filter' : 'sort'] = b.getAttribute('data-v');
+        seg.querySelectorAll('button').forEach(function (x) {
+          x.setAttribute('aria-current', x === b ? 'true' : 'false');
+        });
+        modApplyView();
+      });
+    });
     var list = document.getElementById('modList');
-    modWireSwitches(list);
+    modWireList(list);
     wireRecRowClicks(list);
     wireRecRowScrub(list);
     modFetchAll();
@@ -3950,32 +3974,64 @@
           return;
         }
         modState.all = acc;
-        document.getElementById('modCount').textContent = acc.length + ' waarneming' + (acc.length === 1 ? '' : 'en');
-        modApplySearch();
+        modApplyView();
       })
       .catch(function () {
         list.innerHTML = '<li class="mod-loading">laden mislukt.</li>';
       });
   }
-  function modApplySearch() {
-    if (!modState || !modState.all.length && !document.getElementById('modSearch')) return;
+  function modApplyView() {
+    if (!modState || !document.getElementById('modSearch')) return;
     var q = (document.getElementById('modSearch').value || '').trim().toLowerCase();
-    var rows = !q ? modState.all : modState.all.filter(function (m) {
+    var rows = !q ? modState.all.slice() : modState.all.filter(function (m) {
       return dispName(m.sci, m.com).toLowerCase().indexOf(q) !== -1
         || m.sci.toLowerCase().indexOf(q) !== -1;
     });
+    if (modState.filter === 'onzeker') {
+      rows = rows.filter(function (m) { return m.best_conf != null && m.best_conf < MOD_UNSURE; });
+    } else if (modState.filter === 'verborgen') {
+      rows = rows.filter(function (m) { return m.hidden || m.partially_hidden; });
+    }
+    if (modState.sort === 'score') {
+      rows.sort(function (a, b) { return (a.best_conf == null) - (b.best_conf == null) || a.best_conf - b.best_conf; });
+    } else if (modState.sort === 'soort') {
+      rows.sort(function (a, b) {
+        return dispName(a.sci, a.com).localeCompare(dispName(b.sci, b.com), 'nl')
+          || (a.last_seen < b.last_seen ? 1 : -1);
+      });
+    } // 'nieuw' keeps the API order: last_seen desc
+    modState.lastRows = rows;
+    var nHidden = modState.all.filter(function (m) { return m.hidden || m.partially_hidden; }).length;
+    document.getElementById('modCount').textContent =
+      (rows.length === modState.all.length ? rows.length + '' : rows.length + ' van ' + modState.all.length)
+      + ' · ' + nHidden + ' verborgen';
+    // Bulk actions appear when the visible set is a single species with
+    // multiple moments (tap a species name to get here) - hide/show a
+    // whole misfiring species in one go instead of row for row.
+    var single = rows.length > 1 && rows.every(function (m) { return m.sci === rows[0].sci; });
+    var bulk = !single ? '' :
+      '<li class="mod-bulk"><span>' + modEsc(dispName(rows[0].sci, rows[0].com)) + ' &middot; '
+      + rows.length + ' waarnemingen</span><span class="mod-bulk-btns">'
+      + '<button type="button" data-bulk="hide">alles verbergen</button>'
+      + '<button type="button" data-bulk="show">alles tonen</button></span></li>';
     var list = document.getElementById('modList');
-    list.innerHTML = rows.length ? rows.map(modRowHtml).join('')
-      : '<li class="mod-loading">' + (q ? 'geen match.' : 'geen waarnemingen.') + '</li>';
+    list.innerHTML = rows.length ? bulk + rows.map(modRowHtml).join('')
+      : '<li class="mod-loading">' + (q || modState.filter !== 'alles' ? 'geen match.' : 'geen waarnemingen.') + '</li>';
   }
   function modRowHtml(m) {
     var when = (m.last_seen || '').split(' ');
-    var conf = m.best_conf != null ? (m.best_conf * 100).toFixed(0) + '%' : '-';
+    var pct = m.best_conf != null ? Math.round(m.best_conf * 100) : null;
+    var lvl = pct == null ? 'mid' : pct >= MOD_UNSURE * 100 ? 'hi' : pct >= 50 ? 'mid' : 'lo';
     var countTag = m.n > 1 ? ' <small>&times;' + m.n + '</small>' : '';
-    return '<li class="rec-row mod-row" data-file="' + modEsc(m.file || '') + '" data-rowids="' + m.rowids.join(',') + '" data-hidden="' + (m.hidden ? 'true' : 'false') + '">'
+    var state = m.hidden ? 'hidden' : (m.partially_hidden ? 'partial' : 'shown');
+    var stateTag = state === 'hidden' ? ' &middot; <b class="mod-tag">verborgen</b>'
+      : state === 'partial' ? ' &middot; <b class="mod-tag">deels verborgen</b>' : '';
+    return '<li class="rec-row mod-row" data-file="' + modEsc(m.file || '') + '" data-rowids="' + m.rowids.join(',') + '" data-hidden="' + (m.hidden ? 'true' : 'false') + '" data-state="' + state + '">'
       + '  <button class="play" type="button" aria-label="afspelen"' + (m.file ? '' : ' disabled') + '>' + ICON_PLAY + '</button>'
-      + '  <span class="when">' + modEsc(dispName(m.sci, m.com)) + countTag + '<small>' + modEsc(fmtDateLine(when[0], when[1])) + '</small></span>'
-      + '  <span class="conf">' + conf + '</span>'
+      + '  <span class="when"><button type="button" class="mod-name">' + modEsc(dispName(m.sci, m.com)) + '</button>' + countTag
+      +     '<small>' + modEsc(fmtDateLine(when[0], when[1])) + stateTag + '</small></span>'
+      + '  <span class="conf mod-conf" data-lvl="' + lvl + '"><u>' + (pct == null ? '-' : pct + '%') + '</u>'
+      +     '<span class="mcb"><i style="width:' + (pct || 0) + '%"></i></span></span>'
       + '  <button type="button" class="switch" role="switch" aria-checked="' + (m.hidden ? 'false' : 'true') + '" aria-label="waarneming tonen"></button>'
       + '  <div class="rec-spectro" aria-hidden="true">'
       +     '<div class="rec-spectro-loading">spectrogram laden...</div>'
@@ -3985,30 +4041,81 @@
       +   '</div>'
       + '</li>';
   }
-  // Hide/unhide switch - separate from wireRecRowClicks (which explicitly
-  // ignores .switch clicks so the two don't fight over the same click).
-  function modWireSwitches(list) {
+  // Everything that is NOT play/scrub (wireRecRowClicks owns those):
+  // the hide/unhide switch, the species-name filter shortcut, and the
+  // single-species bulk buttons. State changes are written back into
+  // modState.all so a later search/filter re-render can't silently
+  // revert what the admin just toggled.
+  function modPostOp(op, rowids) {
+    return adminApi('./avian/api/moderation.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ op: op, rowids: rowids }),
+    }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); });
+  }
+  function modSetMoment(m, hidden) {
+    m.hidden = hidden;
+    m.partially_hidden = false;
+  }
+  function modMomentByRow(row) {
+    var key = row.dataset.rowids || '';
+    for (var i = 0; i < modState.all.length; i++) {
+      if (modState.all[i].rowids.join(',') === key) return modState.all[i];
+    }
+    return null;
+  }
+  function modWireList(list) {
     list.addEventListener('click', function (ev) {
+      // Tap the species name -> filter the list to that species (which
+      // also brings up the bulk bar). The search box shows the filter,
+      // so clearing it is obvious.
+      var nameBtn = ev.target.closest('.mod-name');
+      if (nameBtn) {
+        var row0 = nameBtn.closest('.mod-row');
+        var m0 = row0 && modMomentByRow(row0);
+        var input = document.getElementById('modSearch');
+        if (m0 && input) { input.value = dispName(m0.sci, m0.com); modApplyView(); }
+        return;
+      }
+      // Bulk hide/show for the single species currently in view.
+      var bulkBtn = ev.target.closest('[data-bulk]');
+      if (bulkBtn) {
+        var hide = bulkBtn.getAttribute('data-bulk') === 'hide';
+        var moments = modState.lastRows.slice();
+        var rowids = moments.reduce(function (acc, m) { return acc.concat(m.rowids); }, []);
+        if (!rowids.length) return;
+        bulkBtn.disabled = true;
+        modPostOp(hide ? 'hide' : 'unhide', rowids)
+          .then(function () {
+            moments.forEach(function (m) { modSetMoment(m, hide); });
+          })
+          .catch(function () {})
+          .then(function () { modApplyView(); });
+        return;
+      }
       var sw = ev.target.closest('.switch');
       if (!sw) return;
       var row = sw.closest('.mod-row');
       if (!row) return;
       var rowids = (row.dataset.rowids || '').split(',').filter(Boolean).map(Number);
       if (!rowids.length) return;
+      var m = modMomentByRow(row);
+      // A partially hidden moment resolves to fully hidden first - one
+      // more tap then shows everything. Deterministic in two taps.
       var willHide = sw.getAttribute('aria-checked') === 'true';
       sw.setAttribute('aria-checked', willHide ? 'false' : 'true');
       row.setAttribute('data-hidden', willHide ? 'true' : 'false');
+      row.setAttribute('data-state', willHide ? 'hidden' : 'shown');
       row.classList.toggle('mod-hidden', willHide);
-      adminApi('./avian/api/moderation.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ op: willHide ? 'hide' : 'unhide', rowids: rowids }),
-      }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      if (m) modSetMoment(m, willHide);
+      modPostOp(willHide ? 'hide' : 'unhide', rowids)
         .catch(function () {
           // Revert on failure so the switch never lies about server state.
           sw.setAttribute('aria-checked', willHide ? 'true' : 'false');
           row.setAttribute('data-hidden', willHide ? 'false' : 'true');
+          row.setAttribute('data-state', willHide ? 'shown' : 'hidden');
           row.classList.toggle('mod-hidden', !willHide);
+          if (m) modSetMoment(m, !willHide);
         });
     });
   }
@@ -4304,9 +4411,10 @@
     if (!container) return;
     container.addEventListener('click', function (ev) {
     if (!ev.target.closest) return;
-    // The hide/unhide switch (moderation list only) has its own handler -
-    // don't let this click also toggle the spectrogram open/closed.
-    if (ev.target.closest('.switch')) return;
+    // The hide/unhide switch, species-name filter and bulk buttons
+    // (moderation list only) have their own handler - don't let those
+    // clicks also toggle the spectrogram open/closed.
+    if (ev.target.closest('.switch') || ev.target.closest('.mod-name') || ev.target.closest('[data-bulk]')) return;
     // Locked notice (anonymous): tapping it opens the login drawer.
     if (ev.target.closest('.rec-locked')) { requireLogin(); return; }
     // Scrub-region clicks are handled by the mousedown wiring below.
