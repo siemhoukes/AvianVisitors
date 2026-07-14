@@ -80,6 +80,87 @@ def now_iso():
 # In-memory bool standing in for `systemctl is-enabled livestream`.
 _LIVESTREAM = {"enabled": True}
 
+# ---- mock live-guess feed (guesses.php / #admin=live) ------------------------
+# Stands in for the JSONL that scripts/utils/guesses.py writes: one record per
+# 3s analysis slot, extended lazily up to "now" on each request. A tiny state
+# machine makes birds "sing" for a few consecutive slots so the feed looks and
+# scrolls like the real thing.
+_GUESSES = {"slots": [], "last": None, "bird": None, "left": 0}
+_GUESS_MAX = 2400  # ~2h of 3s slots kept in memory
+
+
+def _guess_extend():
+    import random
+    now = datetime.now().replace(microsecond=0)
+    last = _GUESSES["last"] or (now - timedelta(minutes=15))
+    t = last
+    while t + timedelta(seconds=3) <= now:
+        t += timedelta(seconds=3)
+        if _GUESSES["left"] <= 0:
+            r = random.random()
+            if r < 0.40:
+                _GUESSES["bird"] = None                       # silence
+            elif r < 0.46:
+                _GUESSES["bird"] = "human"
+            else:
+                _GUESSES["bird"] = random.choice(SPECIES)
+            _GUESSES["left"] = random.randint(1, 5)
+        _GUESSES["left"] -= 1
+        ts = t.strftime("%Y-%m-%dT%H:%M:%S")
+        if _GUESSES["bird"] == "human":
+            rec = {"t": ts, "s": 0.0, "e": 3.0, "status": "human",
+                   "top": [{"sci": "Human_Human", "com": "Human_Human", "conf": 0.0}]}
+        elif _GUESSES["bird"] is None:
+            sci, com, _ = random.choice(SPECIES)
+            rec = {"t": ts, "s": 0.0, "e": 3.0, "status": "quiet",
+                   "top": [{"sci": sci, "com": com, "conf": round(random.uniform(0.005, 0.04), 3)}]}
+        else:
+            sci, com, _ = _GUESSES["bird"]
+            conf = round(random.uniform(0.1, 0.97), 3)
+            others = random.sample([s for s in SPECIES if s[0] != sci], 2)
+            top = [{"sci": sci, "com": com, "conf": conf}]
+            for osci, ocom, _n in others:
+                oconf = round(random.uniform(0.05, max(0.06, conf / 2)), 3)
+                top.append({"sci": osci, "com": ocom, "conf": oconf})
+            status = "confident" if conf >= 0.7 else "below_confidence"
+            if status == "confident" and random.random() < 0.1:
+                status = "sf_thresh"
+            rec = {"t": ts, "s": 0.0, "e": 3.0, "status": status, "top": top}
+        _GUESSES["slots"].append(rec)
+    _GUESSES["last"] = t
+    del _GUESSES["slots"][:-_GUESS_MAX]
+
+
+def guesses_live_payload(n, since):
+    _guess_extend()
+    out = []
+    for rec in reversed(_GUESSES["slots"]):
+        if since and rec["t"] <= since:
+            break
+        out.append(rec)
+        if len(out) >= n:
+            break
+    return {"slots": out, "confidence": 0.7, "now": now_iso()}
+
+
+def guesses_species_payload(hours):
+    _guess_extend()
+    cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")
+    agg = {}
+    for rec in _GUESSES["slots"]:
+        if rec["t"] < cutoff or rec["status"] in ("human", "quiet"):
+            continue
+        top = rec["top"][0]
+        a = agg.setdefault(top["sci"], {"sci": top["sci"], "com": top["com"],
+                                        "n": 0, "best": 0.0, "last": "", "n_confident": 0})
+        a["n"] += 1
+        a["best"] = max(a["best"], top["conf"])
+        a["last"] = max(a["last"], rec["t"])
+        if rec["status"] == "confident":
+            a["n_confident"] += 1
+    out = sorted(agg.values(), key=lambda a: -a["best"])
+    return {"species": out, "hours": hours, "now": now_iso()}
+
 
 def names_payload(lang):
     # Mirrors birdnet-api.php action=names: the real l18n labels file,
@@ -460,9 +541,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"items": [
                 {"label": "settings", "href": "/#admin=settings", "native": True},
                 {"label": "system", "href": "/#admin=system", "native": True},
+                {"label": "live", "href": "/#admin=live", "native": True},
                 {"label": "logs", "href": "/#admin=logs", "native": True},
                 {"label": "tools", "href": "/#admin=tools", "native": True},
             ]})
+        if path == "/avian/api/guesses.php":
+            if role == ROLE_ANON:
+                return self._401()
+            op = q.get("op", ["live"])[0]
+            if op == "live":
+                n = max(10, min(500, int(q.get("n", ["120"])[0] or 120)))
+                return self._json(guesses_live_payload(n, q.get("since", [""])[0]))
+            if op == "species":
+                hours = max(1, min(72, int(q.get("hours", ["24"])[0] or 24)))
+                return self._json(guesses_species_payload(hours))
+            return self._json({"error": "unknown op"}, 400)
         if path == "/avian/api/config.php":
             if role == ROLE_ANON:
                 return self._401()

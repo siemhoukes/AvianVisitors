@@ -32,6 +32,7 @@ echo json_encode([
     'items' => [
         ['label' => 'settings', 'href' => '/#admin=settings', 'native' => true],
         ['label' => 'system',   'href' => '/#admin=system',   'native' => true],
+        ['label' => 'live',     'href' => '/#admin=live',     'native' => true],
         ['label' => 'logs',     'href' => '/#admin=logs',     'native' => true],
         ['label' => 'tools',    'href' => '/#admin=tools',    'native' => true],
     ],

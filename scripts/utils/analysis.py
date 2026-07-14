@@ -6,6 +6,7 @@ import librosa
 import numpy as np
 
 from .classes import Detection, ParseFileName
+from .guesses import write_guesses
 from .helpers import get_settings, get_language
 from .models import get_model
 
@@ -156,6 +157,8 @@ def run_analysis(file):
     # Process audio data and get detections
     raw_detections, predicted_species_list = analyzeAudioData(audio_data, conf.getfloat('OVERLAP'), conf.getfloat('LATITUDE'),
                                                               conf.getfloat('LONGITUDE'), file.week)
+    write_guesses(file, raw_detections, names, include_list, exclude_list,
+                  predicted_species_list, whitelist_list)
     confident_detections = []
     for time_slot, entries in raw_detections.items():
         sci_name, confidence = entries[0]

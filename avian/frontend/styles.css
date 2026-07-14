@@ -1198,6 +1198,78 @@
     padding: 14px 16px; border-radius: 8px;
     max-height: 65vh; overflow: auto; white-space: pre-wrap;
   }
+  /* Admin "Live analyse" (#admin=live) - stable per-slot guess feed.
+     One grid row per 3s analysis slot; the bar shows the top guess's
+     confidence with a tick at the CONFIDENCE threshold. */
+  .live-chips {
+    display: flex; gap: 6px; align-items: center;
+    overflow-x: auto; white-space: nowrap;
+    padding-bottom: 8px; margin-bottom: 8px;
+    font: 10.5px ui-monospace, Menlo, monospace; color: var(--ink-soft);
+  }
+  .live-chip {
+    flex: 0 0 auto; background: var(--paper-2); border-radius: 999px;
+    padding: 5px 10px; color: var(--ink-2); box-shadow: var(--raised);
+  }
+  .live-chip.heard { background: rgba(90,122,58,.18); color: #4d6730; }
+  .live-chip b { font-variant-numeric: tabular-nums; }
+  .live-chip i { font-style: normal; opacity: .7; }
+  .live-wrap { position: relative; }
+  .live-new-pill {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    z-index: 2; border: 0; cursor: pointer;
+    font: 10.5px ui-monospace, Menlo, monospace; letter-spacing: .06em;
+    border-radius: 999px; padding: 6px 14px;
+    background: var(--ink-2); color: var(--paper); box-shadow: var(--raised);
+  }
+  .live-feed {
+    max-height: 70vh; overflow-y: auto;
+    background: var(--paper-2); border-radius: 8px; padding: 4px 12px;
+    overscroll-behavior: contain;
+  }
+  .live-empty {
+    padding: 20px 4px; text-align: center;
+    font: 11px ui-monospace, Menlo, monospace; color: var(--ink-soft);
+  }
+  .live-row {
+    display: grid; grid-template-columns: auto minmax(0,1fr) 72px 38px;
+    gap: 1px 10px; align-items: center; padding: 7px 0;
+    border-bottom: 1px solid rgba(144,133,118,.18);
+  }
+  .live-row:last-child { border-bottom: 0; }
+  .live-row .lt {
+    font: 10.5px ui-monospace, Menlo, monospace; color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .live-row .ln {
+    font: 12.5px ui-serif, Georgia, serif; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .live-row.st-confident .ln { font-weight: 700; }
+  .live-row .lb {
+    position: relative; height: 6px; border-radius: 3px;
+    background: var(--paper);
+  }
+  .live-row .lb i {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    border-radius: 3px; background: var(--ink-soft);
+  }
+  .live-row.st-confident .lb i { background: #5a7a3a; }
+  .live-row .lb u {
+    position: absolute; top: -2px; bottom: -2px; width: 1px;
+    background: var(--ink-2); opacity: .55;
+  }
+  .live-row .lp {
+    text-align: right; font: 11px ui-monospace, Menlo, monospace;
+    color: var(--ink-2); font-variant-numeric: tabular-nums;
+  }
+  .live-row .ls {
+    grid-column: 2 / 5; font: 9.5px ui-monospace, Menlo, monospace;
+    color: var(--ink-soft); letter-spacing: .03em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .live-row.st-quiet, .live-row.st-human { opacity: .5; }
+  .live-feed.hide-quiet .live-row.st-quiet { display: none; }
   /* Admin moderation ("waarnemingen beheren") - hide/unhide list. Rows reuse
      the SAME .rec-row markup (+ real spectrogram) as the species-detail
      modal's recordings list - see wireRecRowClicks/wireRecRowScrub in

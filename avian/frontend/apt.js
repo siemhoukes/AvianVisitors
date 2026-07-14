@@ -3187,6 +3187,7 @@
   var ADMIN_TITLES = {
     settings: 'Instellingen',
     system: 'Systeem',
+    live: 'Live analyse',
     logs: 'Logboek',
     tools: 'Hulpmiddelen',
     moderation: 'Waarnemingen beheren',
@@ -3231,6 +3232,7 @@
     adminSect = section;
     if (section === 'settings') renderAdminSettings();
     else if (section === 'system') renderAdminSystem();
+    else if (section === 'live') renderAdminLive();
     else if (section === 'logs') renderAdminLogs();
     else if (section === 'tools') renderAdminTools();
     else if (section === 'moderation') renderAdminModeration();
@@ -3643,6 +3645,119 @@
     }
     tick();
     adminPollT = setInterval(tick, 4000);
+  }
+
+  function renderAdminLive() {
+    // Structured live feed of the model's per-3s guesses. guesses.php reads
+    // the JSONL that scripts/utils/guesses.py writes for EVERY analyzed
+    // slot - including guesses under CONFIDENCE that never become
+    // detections. New rows arrive via a `since` cursor and the scroll
+    // position is compensated on insert, so unlike the journalctl pane
+    // nothing ever jumps while you read.
+    adminBody.innerHTML =
+      '<div class="live-chips" id="liveChips">afgelopen uur: nog niets</div>'
+      + '<div class="admin-logs-toolbar"><label>'
+      + '<input type="checkbox" id="liveShowQuiet"> stilte tonen</label></div>'
+      + '<div class="live-wrap">'
+      + '<button type="button" class="live-new-pill" id="liveNewPill" hidden></button>'
+      + '<div class="live-feed hide-quiet" id="liveFeed"><div class="live-empty">gokjes laden...</div></div>'
+      + '</div>';
+    var feed = document.getElementById('liveFeed');
+    var pill = document.getElementById('liveNewPill');
+    var chips = document.getElementById('liveChips');
+    // Quiet slots dominate the raw feed (most of a day is silence); hide
+    // them by default so the list is really "what did the model hear".
+    document.getElementById('liveShowQuiet').addEventListener('change', function (e) {
+      feed.classList.toggle('hide-quiet', !e.target.checked);
+    });
+    var since = '', thr = 0.7, unseen = 0, first = true, ticks = 0;
+    var MAX_ROWS = 300;
+    var STATUS_NL = {
+      below_confidence: 'te onzeker',
+      human: 'privacyfilter',
+      not_in_include: 'niet in include-lijst',
+      excluded: 'uitgesloten soort',
+      sf_thresh: 'onder soortdrempel (zeldzaam hier)',
+    };
+    function rowHtml(slot) {
+      var top = (slot.top && slot.top[0]) || {};
+      var st = slot.status || 'quiet';
+      var conf = +top.conf || 0;
+      var name = st === 'human' ? 'mens' : st === 'quiet' ? 'stilte / ruis'
+        : dispName(top.sci, top.com);
+      var alts = (slot.top || []).slice(1).map(function (g) {
+        return adminEsc(dispName(g.sci, g.com)) + ' ' + Math.round((+g.conf || 0) * 100) + '%';
+      }).join(' &middot; ');
+      var sub = [STATUS_NL[st] ? adminEsc(STATUS_NL[st]) : '', alts ? 'ook: ' + alts : '']
+        .filter(Boolean).join(' &middot; ');
+      return '<div class="live-row st-' + adminEsc(st) + '">'
+        + '<span class="lt">' + adminEsc((slot.t || '').slice(11)) + '</span>'
+        + '<span class="ln">' + adminEsc(name) + '</span>'
+        + '<span class="lb"><i style="width:' + Math.min(100, Math.round(conf * 100)) + '%"></i>'
+        + '<u style="left:' + Math.round(thr * 100) + '%"></u></span>'
+        + '<span class="lp">' + (st === 'human' ? '&mdash;' : Math.round(conf * 100) + '%') + '</span>'
+        + (sub ? '<span class="ls">' + sub + '</span>' : '')
+        + '</div>';
+    }
+    function addSlots(slots) {           // API returns newest first
+      if (!slots.length) return;
+      since = slots[0].t;
+      var html = slots.map(rowHtml).join('');
+      if (first) { feed.innerHTML = html; first = false; }
+      else {
+        var atTop = feed.scrollTop <= 5;
+        var h0 = feed.scrollHeight;
+        feed.insertAdjacentHTML('afterbegin', html);
+        if (!atTop) {
+          // keep whatever the user is reading exactly where it is
+          feed.scrollTop += feed.scrollHeight - h0;
+          unseen += slots.length;
+          pill.hidden = false;
+          pill.textContent = '↑ ' + unseen + ' nieuw';
+        }
+      }
+      while (feed.children.length > MAX_ROWS) feed.removeChild(feed.lastChild);
+    }
+    pill.addEventListener('click', function () {
+      feed.scrollTop = 0; unseen = 0; pill.hidden = true;
+    });
+    feed.addEventListener('scroll', function () {
+      if (feed.scrollTop <= 5 && unseen) { unseen = 0; pill.hidden = true; }
+    });
+    function refreshChips() {
+      adminApi('./avian/api/guesses.php?op=species&hours=1')
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (j) {
+          var sp = (j.species || []).slice(0, 12);
+          if (!sp.length) { chips.textContent = 'afgelopen uur: nog niets'; return; }
+          chips.innerHTML = sp.map(function (s) {
+            return '<span class="live-chip' + (s.n_confident ? ' heard' : '') + '">'
+              + adminEsc(dispName(s.sci, s.com))
+              + ' <b>' + Math.round((+s.best || 0) * 100) + '%</b>'
+              + (s.n > 1 ? ' <i>&times;' + s.n + '</i>' : '')
+              + '</span>';
+          }).join('');
+        })
+        .catch(function () {});
+    }
+    function tick() {
+      adminApi('./avian/api/guesses.php?op=live&n=120' + (since ? '&since=' + encodeURIComponent(since) : ''))
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (j) {
+          if (j.confidence) thr = +j.confidence;
+          if (first && !(j.slots || []).length) {
+            feed.innerHTML = '<div class="live-empty">nog geen gokjes vandaag &mdash; draait birdnet_analysis?</div>';
+          }
+          addSlots(j.slots || []);
+        })
+        .catch(function () {
+          if (first) feed.innerHTML = '<div class="live-empty">pi onbereikbaar</div>';
+        });
+      if (ticks % 20 === 0) refreshChips();   // chips refresh once a minute
+      ticks++;
+    }
+    tick();
+    adminPollT = setInterval(tick, 3000);
   }
 
   function renderAdminTools() {
