@@ -3193,6 +3193,7 @@
     tools: 'Hulpmiddelen',
     moderation: 'Waarnemingen beheren',
     clock: 'Vogelklok',
+    diary: 'Vogeldagboek',
   };
   function adminEsc(s) {
     return String(s == null ? '' : s)
@@ -3237,6 +3238,7 @@
     else if (section === 'live') renderAdminLive();
     else if (section === 'history') renderAdminHistory();
     else if (section === 'clock') renderAdminClock();
+    else if (section === 'diary') renderAdminDiary();
     else if (section === 'logs') renderAdminLogs();
     else if (section === 'tools') renderAdminTools();
     else if (section === 'moderation') renderAdminModeration();
@@ -3983,6 +3985,144 @@
         x.setAttribute('aria-current', x === b ? 'true' : 'false');
       });
       load();
+    });
+    load();
+  }
+
+  function renderAdminDiary() {
+    // Vogeldagboek (hidden, /#admin=diary): every day gets a short
+    // auto-written nature column composed from that day's detections
+    // (birdnet-api.php?action=day serves the facts; the prose lives
+    // here). Phrase variants are picked deterministically from the date,
+    // so an entry reads the same on every visit - like a real diary.
+    var dia = { date: fmtLocalDate(new Date()), since: null, until: null };
+    function fmtLocalDate(d) {
+      return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    }
+    adminBody.innerHTML =
+      '<div class="diary-nav">'
+      + '  <button type="button" id="diaPrev" aria-label="vorige dag">&larr;</button>'
+      + '  <button type="button" id="diaToday" class="diary-today">vandaag</button>'
+      + '  <button type="button" id="diaNext" aria-label="volgende dag">&rarr;</button>'
+      + '</div>'
+      + '<article class="diary-entry" id="diaEntry"><p class="diary-plain">dagboek laden...</p></article>';
+    var entry = document.getElementById('diaEntry');
+    function seedFrom(s) {
+      var h = 0;
+      for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+      return h;
+    }
+    function pick(seed, i, arr) { return arr[(seed + i * 7) % arr.length]; }
+    function nm(s) { return dispName(s.sci, s.com).toLowerCase(); }
+    function dateHeading(iso) {
+      var d = new Date(iso + 'T12:00:00');
+      return d.toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    }
+    function prose(j) {
+      var seed = seedFrom(j.date);
+      var sp = j.species || [];
+      var p = [];
+      if (!sp.length) {
+        p.push(pick(seed, 0, [
+          'Vandaag bleef het stil rond de microfoon. Geen enkele vogel liet zich met zekerheid horen.',
+          'Een dag zonder waarnemingen &mdash; de vogels hielden zich gedeisd, of de wind had het laatste woord.',
+          'Het dagboek blijft vandaag vrijwel leeg: geen vogel kwam boven de meetdrempel uit.',
+        ]));
+        return p;
+      }
+      // opening: the first voice of the day
+      var first = sp.slice().sort(function (a, b) { return a.first < b.first ? -1 : 1; })[0];
+      p.push(pick(seed, 1, [
+        'Om ' + first.first + ' opende de ' + adminEsc(nm(first)) + ' de dag.',
+        'De eerste stem vandaag was die van de ' + adminEsc(nm(first)) + ', om ' + first.first + '.',
+        'De dag begon om ' + first.first + ' met de ' + adminEsc(nm(first)) + '.',
+      ]));
+      // scale + busiest hour
+      var busiest = 0;
+      for (var h = 1; h < 24; h++) if (j.by_hour[h] > j.by_hour[busiest]) busiest = h;
+      var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+      p.push(pick(seed, 2, [
+        'In totaal lieten ' + sp.length + ' soorten zich horen, samen goed voor ' + j.total + ' waarnemingen.',
+        'Er passeerden ' + j.total + ' waarnemingen van ' + sp.length + ' verschillende soorten.',
+        'De teller kwam uit op ' + j.total + ' waarnemingen, verdeeld over ' + sp.length + ' soorten.',
+      ]) + ' ' + pick(seed, 3, [
+        'Het drukst was het tussen ' + pad(busiest) + ':00 en ' + pad((busiest + 1) % 24) + ':00.',
+        'De piek lag tussen ' + pad(busiest) + ':00 en ' + pad((busiest + 1) % 24) + ':00.',
+      ]));
+      // the day's star
+      var star = sp[0];
+      if (star.n > 2) {
+        p.push(pick(seed, 4, [
+          'De ' + adminEsc(nm(star)) + ' was met ' + star.n + ' waarnemingen de onbetwiste veelprater van de dag.',
+          'Veruit het meest gehoord: de ' + adminEsc(nm(star)) + ', maar liefst ' + star.n + ' keer.',
+          'Niemand zo aanwezig als de ' + adminEsc(nm(star)) + ' &mdash; ' + star.n + ' waarnemingen.',
+        ]));
+      }
+      // first-ever species
+      var news = sp.filter(function (s) { return s.is_new; });
+      if (news.length) {
+        var names = news.map(function (s) { return 'de ' + adminEsc(nm(s)); });
+        var lst = names.length === 1 ? names[0]
+          : names.slice(0, -1).join(', ') + ' en ' + names[names.length - 1];
+        p.push(pick(seed, 5, [
+          'Nieuw in de soortenlijst: ' + lst + '!',
+          'Bijzonder: ' + lst + ' liet' + (news.length > 1 ? 'en' : '') + ' zich hier voor het eerst horen.',
+        ]));
+      }
+      // a shy one-off guest (not the star, exactly one moment)
+      var shy = sp.filter(function (s) { return s.n === 1 && !s.is_new && s !== star; })[0];
+      if (shy) {
+        p.push(pick(seed, 6, [
+          'De ' + adminEsc(nm(shy)) + ' liet zich maar &eacute;&eacute;n keer horen, om ' + shy.first + '.',
+          'Een korte gastrol was er voor de ' + adminEsc(nm(shy)) + ' (' + shy.first + ').',
+        ]));
+      }
+      // closing: last voice
+      var last = sp.slice().sort(function (a, b) { return a.last > b.last ? -1 : 1; })[0];
+      p.push(pick(seed, 7, [
+        'De laatste melding van de dag kwam om ' + last.last + ' van de ' + adminEsc(nm(last)) + '.',
+        'Het slotwoord was om ' + last.last + ' aan de ' + adminEsc(nm(last)) + '.',
+      ]));
+      return p;
+    }
+    function facts(j) {
+      var sp = j.species || [];
+      if (!sp.length) return '';
+      var news = sp.filter(function (s) { return s.is_new; }).length;
+      return '<div class="diary-facts">'
+        + '<span>' + sp.length + ' soorten</span><span>' + j.total + ' waarnemingen</span>'
+        + (news ? '<span>' + news + ' nieuw</span>' : '')
+        + '</div>';
+    }
+    function render(j) {
+      dia.since = j.since; dia.until = j.until;
+      entry.innerHTML =
+        '<h2 class="diary-date">' + adminEsc(dateHeading(j.date)) + '</h2>'
+        + prose(j).map(function (t) { return '<p>' + t + '</p>'; }).join('')
+        + facts(j);
+      var today = fmtLocalDate(new Date());
+      document.getElementById('diaNext').disabled = dia.date >= today;
+      document.getElementById('diaPrev').disabled = !!dia.since && dia.date <= dia.since;
+    }
+    function load() {
+      entry.innerHTML = '<p class="diary-plain">dagboek laden...</p>';
+      adminApi('./avian/api/birdnet-api.php?action=day&date=' + dia.date)
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(render)
+        .catch(function () {
+          entry.innerHTML = '<p class="diary-plain">pi onbereikbaar</p>';
+        });
+    }
+    function shift(days) {
+      var d = new Date(dia.date + 'T12:00:00');
+      d.setDate(d.getDate() + days);
+      dia.date = fmtLocalDate(d);
+      load();
+    }
+    document.getElementById('diaPrev').addEventListener('click', function () { shift(-1); });
+    document.getElementById('diaNext').addEventListener('click', function () { shift(1); });
+    document.getElementById('diaToday').addEventListener('click', function () {
+      dia.date = fmtLocalDate(new Date()); load();
     });
     load();
   }

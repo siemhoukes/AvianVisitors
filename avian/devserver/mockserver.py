@@ -337,6 +337,36 @@ def rhythm_payload(days):
             "days": days or None, "since": "2026-06-18", "as_of": now_iso()}
 
 
+def day_payload(date_str):
+    """Vogeldagboek digest: deterministic per-date variation so browsing
+    back through days shows different-but-stable entries (some quiet days,
+    an occasional first-ever species)."""
+    seed = sum(ord(c) * (i + 7) for i, c in enumerate(date_str))
+    species = []
+    total = 0
+    by_hour = [0] * 24
+    if seed % 9:                       # 1 in 9 days is silent
+        for i, (sci, com, w) in enumerate(SPECIES):
+            if (seed + i * 13) % 4 == 0:
+                continue               # this species skipped today
+            n = 1 + (seed + i * 29) % max(2, w)
+            fh, lh = 5 + (seed + i) % 4, 17 + (seed + i * 3) % 5
+            species.append({
+                "sci": sci, "com": com, "n": n,
+                "first": f"{fh:02d}:{(seed + i * 11) % 60:02d}",
+                "last": f"{lh:02d}:{(seed + i * 17) % 60:02d}",
+                "best_conf": round(0.6 + ((seed + i * 7) % 38) / 100, 2),
+                "is_new": (seed + i * 41) % 23 == 0,
+            })
+            total += n
+            for k in range(n):
+                by_hour[(fh + (k * 3 + i) % (lh - fh + 1))] += 1
+        species.sort(key=lambda s: -s["n"])
+    return {"date": date_str, "species": species, "by_hour": by_hour,
+            "total": total, "since": "2026-06-18",
+            "until": datetime.now().strftime("%Y-%m-%d"), "as_of": now_iso()}
+
+
 def locations_payload():
     """GATED: compatibility endpoint, now backed by the reisschema."""
     return {"locations": schedule_state()["schedule"], "as_of": now_iso()}
@@ -560,6 +590,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(species_payload(q.get("sci", [""])[0]))
             if action == "rhythm":
                 return self._json(rhythm_payload(int(q.get("days", ["0"])[0] or 0)))
+            if action == "day":
+                d = q.get("date", [datetime.now().strftime("%Y-%m-%d")])[0]
+                return self._json(day_payload(d))
             if action == "mapconfig":
                 return self._json({"stadia_key": ""})   # blank -> basemap degrades gracefully
             if action == "names":

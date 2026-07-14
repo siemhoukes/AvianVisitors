@@ -178,6 +178,11 @@ function av_moments_date_filter(string $action): string {
         // days=0 (or absent) = all time; otherwise narrow the scan.
         $days = max(0, min(365, (int)($_GET['days'] ?? 0)));
         if ($days > 0) return "Date >= date('now', 'localtime', '-" . ($days + 1) . " day')";
+    } elseif ($action === 'day') {
+        $d = (string)($_GET['date'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) $d = date('Y-m-d');
+        // one margin day so moments straddling midnight group correctly
+        return "Date >= date('" . $d . "', '-1 day') AND Date <= '" . $d . "'";
     }
     return '';
 }
@@ -381,6 +386,59 @@ switch ($action) {
             'total_by_hour' => $totalByHour,
             'days' => $days ?: null,
             'since' => $first['d'] ?? null,
+            'as_of' => date('c'),
+        ]);
+        break;
+    }
+
+    case 'day': {
+        // One day's digest for the Vogeldagboek: per-species moment counts
+        // with first/last voice of the day, the hour histogram, and which
+        // species were heard for the FIRST TIME EVER that day. The client
+        // turns this into prose; this endpoint just serves clean facts.
+        $d = (string)($_GET['date'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) $d = date('Y-m-d');
+        $sp = rows($db,
+          "SELECT Sci_Name AS sci, MAX(Com_Name) AS com, COUNT(DISTINCT moment_id) AS n, "
+        . "       MIN(Time) AS first, MAX(Time) AS last, MAX(Confidence) AS best_conf "
+        . "FROM moments WHERE Date = :d GROUP BY Sci_Name ORDER BY n DESC",
+          [':d' => $d]);
+        $hrRows = rows($db,
+          "SELECT hr, COUNT(*) AS n FROM ("
+        . "  SELECT CAST(strftime('%H', MIN(Time)) AS INTEGER) AS hr "
+        . "  FROM moments WHERE Date = :d GROUP BY Sci_Name, moment_id"
+        . ") GROUP BY hr", [':d' => $d]);
+        $byHour = array_fill(0, 24, 0);
+        foreach ($hrRows as $r) $byHour[max(0, min(23, (int)$r['hr']))] = (int)$r['n'];
+        // First-ever species: their earliest date in the whole (visible)
+        // history is this date. Reads the raw table like `stats` does.
+        $newSet = [];
+        foreach (rows($db,
+            "SELECT Sci_Name AS sci, MIN(Date) AS d0 FROM detections WHERE 1=1" . $GLOBALS['hiddenFilter']
+          . " GROUP BY Sci_Name HAVING d0 = :d", [':d' => $d]) as $r) {
+            $newSet[(string)$r['sci']] = true;
+        }
+        $total = 0;
+        $out = [];
+        foreach ($sp as $s) {
+            $total += (int)$s['n'];
+            $out[] = [
+                'sci' => (string)$s['sci'], 'com' => (string)($s['com'] ?? ''),
+                'n' => (int)$s['n'],
+                'first' => substr((string)$s['first'], 0, 5),
+                'last' => substr((string)$s['last'], 0, 5),
+                'best_conf' => isset($s['best_conf']) ? (float)$s['best_conf'] : null,
+                'is_new' => isset($newSet[(string)$s['sci']]),
+            ];
+        }
+        $bounds = one($db, "SELECT MIN(Date) AS d0, MAX(Date) AS d1 FROM detections WHERE 1=1" . $GLOBALS['hiddenFilter']);
+        echo json_encode([
+            'date' => $d,
+            'species' => $out,
+            'by_hour' => $byHour,
+            'total' => $total,
+            'since' => $bounds['d0'] ?? null,
+            'until' => $bounds['d1'] ?? null,
             'as_of' => date('c'),
         ]);
         break;

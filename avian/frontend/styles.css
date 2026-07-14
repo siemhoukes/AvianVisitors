@@ -1291,6 +1291,37 @@
   }
   .clk-list .clk-row[data-sci] { cursor: pointer; }
   .clk-list .clk-row[data-sci]:hover .ln { text-decoration: underline; text-underline-offset: 2px; }
+  /* Vogeldagboek (#admin=diary, hidden page) - editorial daily column */
+  .diary-nav {
+    display: flex; justify-content: center; gap: 8px; margin-bottom: 14px;
+  }
+  .diary-nav button {
+    font: 11px ui-monospace, Menlo, monospace; letter-spacing: 0.06em;
+    padding: 6px 14px; border: 0; border-radius: 999px; cursor: pointer;
+    background: var(--paper-2); color: var(--ink); box-shadow: var(--raised);
+  }
+  .diary-nav button:hover:not([disabled]) { color: var(--accent); }
+  .diary-nav button[disabled] { opacity: .4; cursor: default; }
+  .diary-entry {
+    max-width: 540px; margin: 0 auto;
+    font: 14.5px/1.75 ui-serif, Georgia, serif; color: var(--ink);
+  }
+  .diary-entry .diary-date {
+    font: 700 17px ui-serif, Georgia, serif; margin: 0 0 14px;
+    text-align: center;
+  }
+  .diary-entry p { margin: 0 0 12px; }
+  .diary-entry p:first-of-type::first-letter {
+    font-size: 34px; float: left; line-height: 1;
+    padding: 2px 6px 0 0; font-weight: 700;
+  }
+  .diary-plain { text-align: center; color: var(--ink-soft); font-size: 12px; }
+  .diary-facts {
+    display: flex; justify-content: center; gap: 14px; margin-top: 18px;
+    padding-top: 10px; border-top: 1px solid rgba(144,133,118,.25);
+    font: 10px ui-monospace, Menlo, monospace; color: var(--ink-soft);
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
   /* Admin moderation ("waarnemingen beheren") - hide/unhide list. Rows reuse
      the SAME .rec-row markup (+ real spectrogram) as the species-detail
      modal's recordings list - see wireRecRowClicks/wireRecRowScrub in
