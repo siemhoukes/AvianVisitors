@@ -114,6 +114,11 @@ ${AUTH_BOTH}
   basicauth /avian/api/birdnet-status.php* {
 ${AUTH_BOTH}
   }
+  # AvianVisitors: the live per-chunk guess feed (#admin=live). It reveals
+  # what the mic is picking up right now, so gate it with the drawer.
+  basicauth /avian/api/guesses.php* {
+${AUTH_BOTH}
+  }
   # AvianVisitors: config.php reads AND writes the live birdnet.conf (confidence,
   # lat/long, site name, purge policy...). The settings drawer is the only caller
   # and it sends creds via fetch, so gate it - otherwise #admin=settings shows
