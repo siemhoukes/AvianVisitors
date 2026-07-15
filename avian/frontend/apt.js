@@ -3301,6 +3301,11 @@
           ? '<div class="menu-row menu-row-nav"><div><span class="label">Waarnemingen beheren</span><span class="hint">waarnemingen verbergen of weer tonen</span></div>'
             + '<a class="menu-row-arrow" href="#admin=moderation" aria-label="openen">&rarr;</a></div>'
           : '';
+        // Historie gave up its drawer slot to the Vogelklok (Siem's call:
+        // "not as important") and lives here as a nav row instead.
+        var histRow =
+          '<div class="menu-row menu-row-nav"><div><span class="label">Historie</span><span class="hint">gok-archief: beste scores per soort</span></div>'
+          + '<a class="menu-row-arrow" href="#admin=history" aria-label="openen">&rarr;</a></div>';
         adminBody.innerHTML =
           '<div class="admin-settings">'
           + themeRow()
@@ -3308,6 +3313,7 @@
           + liveRow
           + streamRow
           + modRow
+          + histRow
           + '<div class="menu-row"><div><span class="label">Scherm-collage toont</span><span class="hint">wat het kleine scherm laat zien</span></div>'
           +   '<div class="seg" data-instant-seg="smalltvwindow">'
           +     ['8h:8 uur', '24h:24 uur', '7d:7 dagen', 'location:deze plek'].map(function (o) { var p = o.split(':'); return '<button type="button" data-v="' + p[0] + '">' + p[1] + '</button>'; }).join('')

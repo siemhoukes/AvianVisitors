@@ -33,7 +33,7 @@ echo json_encode([
         ['label' => 'settings', 'href' => '/#admin=settings', 'native' => true],
         ['label' => 'system',   'href' => '/#admin=system',   'native' => true],
         ['label' => 'live',     'href' => '/#admin=live',     'native' => true],
-        ['label' => 'history',  'href' => '/#admin=history',  'native' => true],
+        ['label' => 'clock',    'href' => '/#admin=clock',    'native' => true],
         ['label' => 'logs',     'href' => '/#admin=logs',     'native' => true],
         ['label' => 'tools',    'href' => '/#admin=tools',    'native' => true],
     ],
