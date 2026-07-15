@@ -3890,9 +3890,10 @@
       if (sr === null) return now.getHours();
       return Math.floor((((now.getHours() * 60 + now.getMinutes()) - sr + 1440) % 1440) / 60);
     }
+    var geomCy = 160;   // ring's vertical center; the sun-arc shifts it
     function polar(r, deg) {
       var rad = (deg - 90) * Math.PI / 180;
-      return [160 + r * Math.cos(rad), 160 + r * Math.sin(rad)];
+      return [160 + r * Math.cos(rad), geomCy + r * Math.sin(rad)];
     }
     function wedgePath(r0, r1, a0, a1) {
       var p1 = polar(r0, a0), p2 = polar(r1, a0), p3 = polar(r1, a1), p4 = polar(r0, a1);
@@ -3910,38 +3911,59 @@
       var sp = speciesEntry(clk.sci);
       var vals = sp ? sp.hours : (clk.data ? clk.data.total_by_hour : []);
       var sun = clk.data && clk.data.sun;
+      var sunMode = clk.mode === 'sun';
       var max = 1;
       for (var i = 0; i < vals.length; i++) max = Math.max(max, vals[i]);
+      // Sun mode is a HORIZON ARC, not a clock: the same 24-bucket ring,
+      // but displaced so a fixed horizon line (y=170) cuts it. Buckets
+      // 0..day_hours ride the sun's path above the horizon (sunrise on the
+      // left, midday on top, sunset on the right); the night wraps below.
+      var dayH = sunMode ? Math.max(4, Math.min(20, (sun && sun.day_hours) || 12)) : 12;
+      var thetaD = dayH / 24 * 180;             // half-angle of the day arc
+      var HY = 170;                             // horizon y
+      var off = sunMode ? -thetaD : 0;          // bucket 0 = left horizon
+      geomCy = sunMode ? HY + 101 * Math.cos(thetaD * Math.PI / 180) : 160;
+      var yTop = geomCy - 154, yBot = geomCy + 154;
+      dial.setAttribute('viewBox', '0 ' + Math.floor(yTop) + ' 320 ' + Math.ceil(yBot - yTop));
       var svg = '';
+      if (sunMode) {
+        svg += '<rect x="0" y="' + HY + '" width="320" height="' + Math.ceil(yBot - HY) + '" class="clk-night"/>'
+          + '<line x1="6" y1="' + HY + '" x2="314" y2="' + HY + '" class="clk-horizon"/>';
+      }
       for (var h = 0; h < 24; h++) {
-        var a0 = h * 15 + 1, a1 = (h + 1) * 15 - 1;
+        var a0 = off + h * 15 + 1, a1 = off + (h + 1) * 15 - 1;
         svg += '<path d="' + wedgePath(72, 130, a0, a1) + '" class="clk-wedge" data-h="' + h + '"'
           + ' fill="#5a7a3a" fill-opacity="' + (0.07 + 0.9 * ((vals[h] || 0) / max)).toFixed(3) + '"'
           + (h === clk.hour ? ' stroke="var(--ink)" stroke-width="1.6"' : '') + '/>';
       }
-      [0, 6, 12, 18].forEach(function (h) {
-        var p = polar(146, h * 15 + 7.5);
-        var txt = clk.mode === 'sun' ? (h === 0 ? '☀' : '+' + h + 'u') : hourLabel(h);
-        svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">' + txt + '</text>';
-      });
-      // sun/moon markers: in clock mode at today's actual sunrise/sunset;
-      // in sun mode sunrise IS the top and the moon sits at day's end.
-      if (sun) {
-        var marks = clk.mode === 'sun'
-          ? [['☀', 0.5], ['☾', sun.day_hours * 15]]
-          : [['☀', (hmToMin(sun.sunrise) || 360) / 4], ['☾', (hmToMin(sun.sunset) || 1260) / 4]];
-        marks.forEach(function (mk) {
-          var p = polar(58, mk[1] % 360);
-          svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3.5).toFixed(1) + '" class="clk-sun" text-anchor="middle">' + mk[0] + '</text>';
+      if (sunMode) {
+        // ☀ rises at the left horizon cut, ☾ sets at the right one -
+        // sitting ON the horizon line, just outside the ring
+        var cutDx = 130 * Math.sin(thetaD * Math.PI / 180);
+        var pMid = polar(146, 0), pNight = polar(146, off + ((dayH + 24) / 2) * 15);
+        svg += '<text x="' + (160 - cutDx - 15).toFixed(1) + '" y="' + (HY + 4) + '" class="clk-sun" text-anchor="middle">☀</text>'
+          + '<text x="' + (160 + cutDx + 15).toFixed(1) + '" y="' + (HY + 4) + '" class="clk-sun" text-anchor="middle">☾</text>'
+          + '<text x="' + pMid[0].toFixed(1) + '" y="' + (pMid[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">middag</text>'
+          + '<text x="' + pNight[0].toFixed(1) + '" y="' + (pNight[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">nacht</text>';
+      } else {
+        [0, 6, 12, 18].forEach(function (h) {
+          var p = polar(146, h * 15 + 7.5);
+          svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">' + hourLabel(h) + '</text>';
         });
+        if (sun) {
+          [['☀', (hmToMin(sun.sunrise) || 360) / 4], ['☾', (hmToMin(sun.sunset) || 1260) / 4]].forEach(function (mk) {
+            var p = polar(58, mk[1] % 360);
+            svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3.5).toFixed(1) + '" class="clk-sun" text-anchor="middle">' + mk[0] + '</text>';
+          });
+        }
       }
       // "now" needle across the ring (sun mode: offset from today's sunrise)
       var now = new Date();
       var nowDeg;
-      if (clk.mode === 'sun') {
+      if (sunMode) {
         var sr = sun ? hmToMin(sun.sunrise) : null;
         nowDeg = sr === null ? null
-          : ((((now.getHours() * 60 + now.getMinutes()) - sr + 1440) % 1440) / 4);
+          : off + ((((now.getHours() * 60 + now.getMinutes()) - sr + 1440) % 1440) / 4);
       } else {
         nowDeg = (now.getHours() + now.getMinutes() / 60) * 15;
       }
@@ -3953,10 +3975,10 @@
       // narrows the caption - the lock itself stays
       var capTop = sp ? dispName(sp.sci, sp.com) : lblRange(clk.hour);
       var capSub = sp
-        ? sp.n + '× totaal · ' + (sp.hours[clk.hour] || 0) + '× ' + (clk.mode === 'sun' ? 'zon +' + clk.hour + 'u' : 'om ' + hourLabel(clk.hour))
+        ? sp.n + '× totaal · ' + (sp.hours[clk.hour] || 0) + '× ' + (sunMode ? 'zon +' + clk.hour + 'u' : 'om ' + hourLabel(clk.hour))
         : ((clk.data && clk.data.total_by_hour[clk.hour] || 0) + '× in dit blok');
-      svg += '<text x="160" y="155" class="clk-cap" text-anchor="middle">' + adminEsc(capTop) + '</text>'
-        + '<text x="160" y="172" class="clk-sub" text-anchor="middle">' + capSub + '</text>';
+      svg += '<text x="160" y="' + (geomCy - 5).toFixed(1) + '" class="clk-cap" text-anchor="middle">' + adminEsc(capTop) + '</text>'
+        + '<text x="160" y="' + (geomCy + 12).toFixed(1) + '" class="clk-sub" text-anchor="middle">' + capSub + '</text>';
       dial.innerHTML = svg;
     }
     function listRow(rank, name, pct, sub, attrs, sel) {

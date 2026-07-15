@@ -1285,6 +1285,11 @@
   #clkDial .clk-sub { font: 9.5px ui-monospace, Menlo, monospace; fill: var(--ink-soft); }
   #clkDial .clk-now { stroke: var(--accent); stroke-width: 1.5; opacity: .75; }
   #clkDial .clk-sun { font-size: 11px; fill: var(--ink-2); }
+  #clkDial .clk-horizon {
+    stroke: var(--ink-soft); stroke-width: 1; stroke-dasharray: 3 4; opacity: .7;
+  }
+  #clkDial .clk-night { fill: var(--ink); opacity: .06; }
+  :root[data-theme="dark"] #clkDial .clk-night { fill: #000; opacity: .3; }
   .clk-list .clk-row.clk-sel .ln { font-weight: 700; }
   .clk-list .clk-row.clk-sel .lt { color: var(--ink); }
   .clk-list .clk-row[data-h] { cursor: pointer; }
