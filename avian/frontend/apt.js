@@ -3907,78 +3907,109 @@
       }
       return null;
     }
-    function drawDial() {
-      var sp = speciesEntry(clk.sci);
-      var vals = sp ? sp.hours : (clk.data ? clk.data.total_by_hour : []);
-      var sun = clk.data && clk.data.sun;
-      var sunMode = clk.mode === 'sun';
-      var max = 1;
-      for (var i = 0; i < vals.length; i++) max = Math.max(max, vals[i]);
-      // Sun mode is a HORIZON ARC, not a clock: the same 24-bucket ring,
-      // but displaced so a fixed horizon line (y=170) cuts it. Buckets
-      // 0..day_hours ride the sun's path above the horizon (sunrise on the
-      // left, midday on top, sunset on the right); the night wraps below.
-      var dayH = sunMode ? Math.max(4, Math.min(20, (sun && sun.day_hours) || 12)) : 12;
-      var thetaD = dayH / 24 * 180;             // half-angle of the day arc
-      var HY = 170;                             // horizon y
-      var off = sunMode ? -thetaD : 0;          // bucket 0 = left horizon
-      geomCy = sunMode ? HY + 101 * Math.cos(thetaD * Math.PI / 180) : 160;
-      var yTop = geomCy - 154, yBot = geomCy + 154;
-      dial.setAttribute('viewBox', '0 ' + Math.floor(yTop) + ' 320 ' + Math.ceil(yBot - yTop));
-      var svg = '';
-      if (sunMode) {
-        svg += '<rect x="0" y="' + HY + '" width="320" height="' + Math.ceil(yBot - HY) + '" class="clk-night"/>'
-          + '<line x1="6" y1="' + HY + '" x2="314" y2="' + HY + '" class="clk-horizon"/>';
-      }
-      for (var h = 0; h < 24; h++) {
-        var a0 = off + h * 15 + 1, a1 = off + (h + 1) * 15 - 1;
-        svg += '<path d="' + wedgePath(72, 130, a0, a1) + '" class="clk-wedge" data-h="' + h + '"'
-          + ' fill="#5a7a3a" fill-opacity="' + (0.07 + 0.9 * ((vals[h] || 0) / max)).toFixed(3) + '"'
-          + (h === clk.hour ? ' stroke="var(--ink)" stroke-width="1.6"' : '') + '/>';
-      }
-      if (sunMode) {
-        // ☀ rises at the left horizon cut, ☾ sets at the right one -
-        // sitting ON the horizon line, just outside the ring
-        var cutDx = 130 * Math.sin(thetaD * Math.PI / 180);
-        var pMid = polar(146, 0), pNight = polar(146, off + ((dayH + 24) / 2) * 15);
-        svg += '<text x="' + (160 - cutDx - 15).toFixed(1) + '" y="' + (HY + 4) + '" class="clk-sun" text-anchor="middle">☀</text>'
-          + '<text x="' + (160 + cutDx + 15).toFixed(1) + '" y="' + (HY + 4) + '" class="clk-sun" text-anchor="middle">☾</text>'
-          + '<text x="' + pMid[0].toFixed(1) + '" y="' + (pMid[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">middag</text>'
-          + '<text x="' + pNight[0].toFixed(1) + '" y="' + (pNight[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">nacht</text>';
-      } else {
-        [0, 6, 12, 18].forEach(function (h) {
-          var p = polar(146, h * 15 + 7.5);
-          svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">' + hourLabel(h) + '</text>';
-        });
-        if (sun) {
-          [['☀', (hmToMin(sun.sunrise) || 360) / 4], ['☾', (hmToMin(sun.sunset) || 1260) / 4]].forEach(function (mk) {
-            var p = polar(58, mk[1] % 360);
-            svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3.5).toFixed(1) + '" class="clk-sun" text-anchor="middle">' + mk[0] + '</text>';
-          });
-        }
-      }
-      // "now" needle across the ring (sun mode: offset from today's sunrise)
-      var now = new Date();
-      var nowDeg;
-      if (sunMode) {
-        var sr = sun ? hmToMin(sun.sunrise) : null;
-        nowDeg = sr === null ? null
-          : off + ((((now.getHours() * 60 + now.getMinutes()) - sr + 1440) % 1440) / 4);
-      } else {
-        nowDeg = (now.getHours() + now.getMinutes() / 60) * 15;
-      }
-      if (nowDeg !== null) {
-        var n0 = polar(64, nowDeg), n1 = polar(136, nowDeg);
-        svg += '<line x1="' + n0[0].toFixed(1) + '" y1="' + n0[1].toFixed(1) + '" x2="' + n1[0].toFixed(1) + '" y2="' + n1[1].toFixed(1) + '" class="clk-now"/>';
-      }
-      // center caption: with a species locked, the selected wedge only
+    function capsSvg(sp, y1, y2) {
+      // caption pair: with a species locked, the selected block only
       // narrows the caption - the lock itself stays
+      var sunMode = clk.mode === 'sun';
       var capTop = sp ? dispName(sp.sci, sp.com) : lblRange(clk.hour);
       var capSub = sp
         ? sp.n + '× totaal · ' + (sp.hours[clk.hour] || 0) + '× ' + (sunMode ? 'zon +' + clk.hour + 'u' : 'om ' + hourLabel(clk.hour))
         : ((clk.data && clk.data.total_by_hour[clk.hour] || 0) + '× in dit blok');
-      svg += '<text x="160" y="' + (geomCy - 5).toFixed(1) + '" class="clk-cap" text-anchor="middle">' + adminEsc(capTop) + '</text>'
-        + '<text x="160" y="' + (geomCy + 12).toFixed(1) + '" class="clk-sub" text-anchor="middle">' + capSub + '</text>';
+      return '<text x="160" y="' + y1 + '" class="clk-cap" text-anchor="middle">' + adminEsc(capTop) + '</text>'
+        + '<text x="160" y="' + y2 + '" class="clk-sub" text-anchor="middle">' + capSub + '</text>';
+    }
+    function drawDial() {
+      var sp = speciesEntry(clk.sci);
+      var vals = sp ? sp.hours : (clk.data ? clk.data.total_by_hour : []);
+      var sun = clk.data && clk.data.sun;
+      var max = 1;
+      for (var i = 0; i < vals.length; i++) max = Math.max(max, vals[i]);
+      if (clk.mode === 'sun') { drawBand(sp, vals, sun, max); return; }
+      geomCy = 160;
+      dial.setAttribute('viewBox', '0 6 320 308');
+      var svg = '';
+      for (var h = 0; h < 24; h++) {
+        var a0 = h * 15 + 1, a1 = (h + 1) * 15 - 1;
+        svg += '<path d="' + wedgePath(72, 130, a0, a1) + '" class="clk-wedge" data-h="' + h + '"'
+          + ' fill="#5a7a3a" fill-opacity="' + (0.07 + 0.9 * ((vals[h] || 0) / max)).toFixed(3) + '"'
+          + (h === clk.hour ? ' stroke="var(--ink)" stroke-width="1.6"' : '') + '/>';
+      }
+      [0, 6, 12, 18].forEach(function (hh) {
+        var p = polar(146, hh * 15 + 7.5);
+        svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">' + hourLabel(hh) + '</text>';
+      });
+      if (sun) {
+        [['☀', (hmToMin(sun.sunrise) || 360) / 4], ['☾', (hmToMin(sun.sunset) || 1260) / 4]].forEach(function (mk) {
+          var p = polar(58, mk[1] % 360);
+          svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3.5).toFixed(1) + '" class="clk-sun" text-anchor="middle">' + mk[0] + '</text>';
+        });
+      }
+      var now = new Date();
+      var nowDeg = (now.getHours() + now.getMinutes() / 60) * 15;
+      var n0 = polar(64, nowDeg), n1 = polar(136, nowDeg);
+      svg += '<line x1="' + n0[0].toFixed(1) + '" y1="' + n0[1].toFixed(1) + '" x2="' + n1[0].toFixed(1) + '" y2="' + n1[1].toFixed(1) + '" class="clk-now"/>'
+        + capsSvg(sp, 155, 172);
+      dial.innerHTML = svg;
+    }
+    function drawBand(sp, vals, sun, max) {
+      // Sun mode is a DAG-BAND, not a clock: a horizontal strip that runs
+      // night edge -> ☀ sunrise -> middag -> ☾ sunset -> night edge. Half
+      // the night sits on each side, so bucket 0 (sunrise) starts after
+      // the left dark flank. Bars encode by height; with a species locked
+      // the all-birds total stays behind as a grey silhouette.
+      var dayH = Math.max(4, Math.min(20, (sun && sun.day_hours) || 12));
+      var nl = Math.floor((24 - dayH) / 2);   // night buckets on the left
+      var X0 = 10, W = 300, BW = W / 24, TOP = 52, BASE = 150;
+      var xOf = function (b, frac) { return X0 + (((b + nl) % 24) + (frac || 0)) * BW; };
+      var xSr = xOf(0), xSs = X0 + (nl + dayH) * BW;
+      dial.setAttribute('viewBox', '0 0 320 200');
+      var svg = '<rect x="' + X0 + '" y="' + TOP + '" width="' + (xSr - X0) + '" height="' + (BASE - TOP) + '" class="clk-night"/>'
+        + '<rect x="' + xSs.toFixed(1) + '" y="' + TOP + '" width="' + (X0 + W - xSs).toFixed(1) + '" height="' + (BASE - TOP) + '" class="clk-night"/>'
+        + '<line x1="' + X0 + '" y1="' + BASE + '" x2="' + (X0 + W) + '" y2="' + BASE + '" class="clk-horizon"/>';
+      // grey context silhouette of ALL birds behind a locked species
+      if (sp && clk.data) {
+        var tot = clk.data.total_by_hour, tMax = 1;
+        for (var j = 0; j < 24; j++) tMax = Math.max(tMax, tot[j]);
+        var pts = 'M' + X0 + ',' + BASE;
+        for (var d = 0; d < 24; d++) {
+          var b = ((d - nl) + 24) % 24;   // display slot d shows bucket b
+          pts += ' L' + (X0 + (d + 0.5) * BW).toFixed(1) + ','
+            + (BASE - (tot[b] || 0) / tMax * (BASE - TOP - 4)).toFixed(1);
+        }
+        svg += '<path d="' + pts + ' L' + (X0 + W) + ',' + BASE + ' Z" class="clk-ctx"/>';
+      }
+      // bars + full-height tap targets (bars can be near-zero high)
+      for (var h = 0; h < 24; h++) {
+        var xb = xOf(h) + 1, bw = BW - 2;
+        var bh = (vals[h] || 0) / max * (BASE - TOP - 4);
+        if (bh > 0.5) {
+          svg += '<rect x="' + xb.toFixed(1) + '" y="' + (BASE - bh).toFixed(1) + '" width="' + bw.toFixed(1)
+            + '" height="' + bh.toFixed(1) + '" fill="#5a7a3a"/>';
+        }
+        svg += '<rect x="' + xb.toFixed(1) + '" y="' + TOP + '" width="' + bw.toFixed(1) + '" height="' + (BASE - TOP)
+          + '" class="clk-wedge" data-h="' + h + '" fill="transparent"'
+          + (h === clk.hour ? ' stroke="var(--ink)" stroke-width="1.6"' : '') + '/>';
+      }
+      // sun markers + axis labels
+      svg += '<line x1="' + xSr.toFixed(1) + '" y1="' + (TOP - 8) + '" x2="' + xSr.toFixed(1) + '" y2="' + BASE + '" class="clk-horizon"/>'
+        + '<line x1="' + xSs.toFixed(1) + '" y1="' + (TOP - 8) + '" x2="' + xSs.toFixed(1) + '" y2="' + BASE + '" class="clk-horizon"/>'
+        + '<text x="' + xSr.toFixed(1) + '" y="' + (TOP - 12) + '" class="clk-sun" text-anchor="middle">☀</text>'
+        + '<text x="' + xSs.toFixed(1) + '" y="' + (TOP - 12) + '" class="clk-sun" text-anchor="middle">☾</text>'
+        + '<text x="' + ((X0 + xSr) / 2).toFixed(1) + '" y="' + (BASE + 14) + '" class="clk-lbl" text-anchor="middle">nacht</text>'
+        + '<text x="' + ((xSr + xSs) / 2).toFixed(1) + '" y="' + (BASE + 14) + '" class="clk-lbl" text-anchor="middle">middag</text>'
+        + '<text x="' + ((xSs + X0 + W) / 2).toFixed(1) + '" y="' + (BASE + 14) + '" class="clk-lbl" text-anchor="middle">nacht</text>'
+        + '<text x="' + xOf(6, 0.5).toFixed(1) + '" y="' + (BASE + 26) + '" class="clk-lbl" text-anchor="middle">+6u</text>'
+        + '<text x="' + xOf(12, 0.5).toFixed(1) + '" y="' + (BASE + 26) + '" class="clk-lbl" text-anchor="middle">+12u</text>'
+        + '<text x="' + xOf(18, 0.5).toFixed(1) + '" y="' + (BASE + 26) + '" class="clk-lbl" text-anchor="middle">+18u</text>';
+      // "now" marker: offset from today's sunrise
+      var sr = sun ? hmToMin(sun.sunrise) : null;
+      if (sr !== null) {
+        var now = new Date();
+        var offH = (((now.getHours() * 60 + now.getMinutes()) - sr + 1440) % 1440) / 60;
+        var xn = X0 + (((offH + nl) % 24) * BW);
+        svg += '<line x1="' + xn.toFixed(1) + '" y1="' + (TOP - 4) + '" x2="' + xn.toFixed(1) + '" y2="' + (BASE + 4) + '" class="clk-now"/>';
+      }
+      svg += capsSvg(sp, 20, 37);
       dial.innerHTML = svg;
     }
     function listRow(rank, name, pct, sub, attrs, sel) {

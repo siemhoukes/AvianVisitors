@@ -1290,6 +1290,7 @@
   }
   #clkDial .clk-night { fill: var(--ink); opacity: .06; }
   :root[data-theme="dark"] #clkDial .clk-night { fill: #000; opacity: .3; }
+  #clkDial .clk-ctx { fill: var(--ink-soft); opacity: .3; }
   .clk-list .clk-row.clk-sel .ln { font-weight: 700; }
   .clk-list .clk-row.clk-sel .lt { color: var(--ink); }
   .clk-list .clk-row[data-h] { cursor: pointer; }
