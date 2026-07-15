@@ -316,24 +316,40 @@ _RHYTHM_PEAKS = {
 }
 
 
-def rhythm_payload(days):
+_MOCK_SUNRISE_H = 6.07   # 06:04 - the mock's fixed sun times
+_MOCK_SUNSET_H = 21.63   # 21:38
+
+
+def rhythm_payload(days, mode="clock", place=0):
+    sun_mode = mode == "sun"
     species = []
     total_by_hour = [0] * 24
-    for sci, com, weight in SPECIES:
+    for i, (sci, com, weight) in enumerate(SPECIES):
+        # place filter: each stop "has" a different subset + intensity so
+        # switching places visibly changes the dial offline
+        if place and (i + place) % 3 == 0:
+            continue
+        w_place = 1.0 if not place else 0.5 + ((i + place) % 4) / 4.0
         peaks = _RHYTHM_PEAKS.get(sci, [(10.0, 4.0, 1.0)])
         hours = []
         for h in range(24):
+            # sun mode: bucket 0 = sunrise, so evaluate the same peaks at
+            # (bucket + sunrise) wall time
+            wall = (h + _MOCK_SUNRISE_H) % 24 if sun_mode else h
             v = 0.0
             for (mu, sigma, w) in peaks:
-                d = min(abs(h - mu), 24 - abs(h - mu))   # wrap around midnight
+                d = min(abs(wall - mu), 24 - abs(wall - mu))   # wrap midnight
                 v += w * math.exp(-(d * d) / (2 * sigma * sigma))
-            hours.append(int(round(v * weight * 3)))
+            hours.append(int(round(v * weight * 3 * w_place)))
         n = sum(hours)
         for h in range(24):
             total_by_hour[h] += hours[h]
         species.append({"sci": sci, "com": com, "n": n, "hours": hours})
     species.sort(key=lambda s: -s["n"])
     return {"species": species, "total_by_hour": total_by_hour,
+            "mode": "sun" if sun_mode else "clock", "place": place or None,
+            "sun": {"sunrise": "06:04", "sunset": "21:38",
+                    "day_hours": round(_MOCK_SUNSET_H - _MOCK_SUNRISE_H, 2)},
             "days": days or None, "since": "2026-06-18", "as_of": now_iso()}
 
 
@@ -589,7 +605,9 @@ class Handler(BaseHTTPRequestHandler):
             if action == "species":
                 return self._json(species_payload(q.get("sci", [""])[0]))
             if action == "rhythm":
-                return self._json(rhythm_payload(int(q.get("days", ["0"])[0] or 0)))
+                return self._json(rhythm_payload(int(q.get("days", ["0"])[0] or 0),
+                                                 q.get("mode", ["clock"])[0],
+                                                 int(q.get("place", ["0"])[0] or 0)))
             if action == "day":
                 d = q.get("date", [datetime.now().strftime("%Y-%m-%d")])[0]
                 return self._json(day_payload(d))

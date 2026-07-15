@@ -3835,10 +3835,21 @@
     //   - species selected (tap a bird row, or the dropdown): dial = that
     //     bird's day-rhythm; list = its best hours   (P(hour | species))
     // Deliberately NOT in the drawer menu yet - reachable via /#admin=clock.
-    var clk = { data: null, days: 0, sci: null, hour: new Date().getHours() };
+    // mode 'sun' re-buckets server-side as hours-since-sunrise (bucket 0 =
+    // sunrise) because birds keep solar time; place = reisschema stop id.
+    // hour === null means "pick the sensible default once data arrives".
+    var clk = { data: null, days: 0, sci: null, hour: new Date().getHours(),
+                mode: 'clock', place: 0 };
     adminBody.innerHTML =
       '<div class="admin-logs-toolbar clk-toolbar">'
       + '  <select id="clkSpecies"><option value="">alle soorten</option></select>'
+      + '  <select id="clkPlace" hidden><option value="0">alle plekken</option></select>'
+      + '</div>'
+      + '<div class="admin-logs-toolbar clk-toolbar">'
+      + '  <div class="seg" id="clkModeSeg">'
+      + '    <button type="button" data-v="clock" aria-current="true">kloktijd</button>'
+      + '    <button type="button" data-v="sun" aria-current="false">zon-tijd</button>'
+      + '  </div>'
       + '  <div class="seg" id="clkDaysSeg">'
       + '    <button type="button" data-v="7">7 dagen</button>'
       + '    <button type="button" data-v="30">30 dagen</button>'
@@ -3855,6 +3866,24 @@
 
     function pad2(h) { return (h < 10 ? '0' : '') + h; }
     function hourLabel(h) { return pad2(h) + ':00'; }
+    // bucket label, mode-aware: clock buckets are wall hours, sun buckets
+    // are whole hours since sunrise
+    function lblRange(h) {
+      return clk.mode === 'sun'
+        ? (h === 0 ? '1e uur na zonsopkomst' : 'zon +' + h + 'u')
+        : hourLabel(h) + '–' + hourLabel((h + 1) % 24);
+    }
+    function hmToMin(hm) {
+      var m = /^(\d{2}):(\d{2})$/.exec(hm || '');
+      return m ? (+m[1]) * 60 + (+m[2]) : null;
+    }
+    function defaultHour() {
+      var now = new Date();
+      if (clk.mode !== 'sun') return now.getHours();
+      var sr = clk.data && clk.data.sun ? hmToMin(clk.data.sun.sunrise) : null;
+      if (sr === null) return now.getHours();
+      return Math.floor((((now.getHours() * 60 + now.getMinutes()) - sr + 1440) % 1440) / 60);
+    }
     function polar(r, deg) {
       var rad = (deg - 90) * Math.PI / 180;
       return [160 + r * Math.cos(rad), 160 + r * Math.sin(rad)];
@@ -3874,34 +3903,58 @@
     function drawDial() {
       var sp = speciesEntry(clk.sci);
       var vals = sp ? sp.hours : (clk.data ? clk.data.total_by_hour : []);
+      var sun = clk.data && clk.data.sun;
       var max = 1;
       for (var i = 0; i < vals.length; i++) max = Math.max(max, vals[i]);
       var svg = '';
       for (var h = 0; h < 24; h++) {
         var a0 = h * 15 + 1, a1 = (h + 1) * 15 - 1;
-        var sel = !sp && h === clk.hour;
         svg += '<path d="' + wedgePath(72, 130, a0, a1) + '" class="clk-wedge" data-h="' + h + '"'
           + ' fill="#5a7a3a" fill-opacity="' + (0.07 + 0.9 * ((vals[h] || 0) / max)).toFixed(3) + '"'
-          + (sel ? ' stroke="var(--ink)" stroke-width="1.6"' : '') + '/>';
+          + (h === clk.hour ? ' stroke="var(--ink)" stroke-width="1.6"' : '') + '/>';
       }
       [0, 6, 12, 18].forEach(function (h) {
         var p = polar(146, h * 15 + 7.5);
-        svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">' + hourLabel(h) + '</text>';
+        var txt = clk.mode === 'sun' ? (h === 0 ? '☀' : '+' + h + 'u') : hourLabel(h);
+        svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3).toFixed(1) + '" class="clk-lbl" text-anchor="middle">' + txt + '</text>';
       });
-      // "now" needle across the ring
+      // sun/moon markers: in clock mode at today's actual sunrise/sunset;
+      // in sun mode sunrise IS the top and the moon sits at day's end.
+      if (sun) {
+        var marks = clk.mode === 'sun'
+          ? [['☀', 0.5], ['☾', sun.day_hours * 15]]
+          : [['☀', (hmToMin(sun.sunrise) || 360) / 4], ['☾', (hmToMin(sun.sunset) || 1260) / 4]];
+        marks.forEach(function (mk) {
+          var p = polar(58, mk[1] % 360);
+          svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + 3.5).toFixed(1) + '" class="clk-sun" text-anchor="middle">' + mk[0] + '</text>';
+        });
+      }
+      // "now" needle across the ring (sun mode: offset from today's sunrise)
       var now = new Date();
-      var nowDeg = (now.getHours() + now.getMinutes() / 60) * 15 + 7.5;
-      var n0 = polar(64, nowDeg), n1 = polar(136, nowDeg);
-      svg += '<line x1="' + n0[0].toFixed(1) + '" y1="' + n0[1].toFixed(1) + '" x2="' + n1[0].toFixed(1) + '" y2="' + n1[1].toFixed(1) + '" class="clk-now"/>';
-      // center caption
-      var capTop = sp ? dispName(sp.sci, sp.com) : hourLabel(clk.hour) + '–' + hourLabel((clk.hour + 1) % 24);
-      var capSub = sp ? sp.n + '× totaal' : ((clk.data && clk.data.total_by_hour[clk.hour] || 0) + '× in dit uur');
+      var nowDeg;
+      if (clk.mode === 'sun') {
+        var sr = sun ? hmToMin(sun.sunrise) : null;
+        nowDeg = sr === null ? null
+          : ((((now.getHours() * 60 + now.getMinutes()) - sr + 1440) % 1440) / 4);
+      } else {
+        nowDeg = (now.getHours() + now.getMinutes() / 60) * 15;
+      }
+      if (nowDeg !== null) {
+        var n0 = polar(64, nowDeg), n1 = polar(136, nowDeg);
+        svg += '<line x1="' + n0[0].toFixed(1) + '" y1="' + n0[1].toFixed(1) + '" x2="' + n1[0].toFixed(1) + '" y2="' + n1[1].toFixed(1) + '" class="clk-now"/>';
+      }
+      // center caption: with a species locked, the selected wedge only
+      // narrows the caption - the lock itself stays
+      var capTop = sp ? dispName(sp.sci, sp.com) : lblRange(clk.hour);
+      var capSub = sp
+        ? sp.n + '× totaal · ' + (sp.hours[clk.hour] || 0) + '× ' + (clk.mode === 'sun' ? 'zon +' + clk.hour + 'u' : 'om ' + hourLabel(clk.hour))
+        : ((clk.data && clk.data.total_by_hour[clk.hour] || 0) + '× in dit blok');
       svg += '<text x="160" y="155" class="clk-cap" text-anchor="middle">' + adminEsc(capTop) + '</text>'
         + '<text x="160" y="172" class="clk-sub" text-anchor="middle">' + capSub + '</text>';
       dial.innerHTML = svg;
     }
-    function listRow(rank, name, pct, sub, sci) {
-      return '<div class="live-row clk-row"' + (sci ? ' data-sci="' + adminEsc(sci) + '"' : '') + '>'
+    function listRow(rank, name, pct, sub, attrs, sel) {
+      return '<div class="live-row clk-row' + (sel ? ' clk-sel' : '') + '"' + (attrs || '') + '>'
         + '<span class="lt">' + rank + '</span>'
         + '<span class="ln">' + adminEsc(name) + '</span>'
         + '<span class="lb"><i style="width:' + Math.min(100, Math.round(pct)) + '%"></i></span>'
@@ -3912,16 +3965,20 @@
     function drawList() {
       if (!clk.data) return;
       var sp = speciesEntry(clk.sci);
+      var blok = clk.mode === 'sun' ? 'dit zon-uur' : 'dit uur';
       if (sp) {
-        // P(hour | species): when do I hear this bird?
+        // P(hour | species): when do I hear this bird? Rows stay tappable
+        // to move the selected wedge WITHOUT dropping the species lock.
         var hrs = [];
         for (var h = 0; h < 24; h++) if (sp.hours[h] > 0) hrs.push(h);
         hrs.sort(function (a, b) { return sp.hours[b] - sp.hours[a]; });
-        hintEl.textContent = 'beste uren voor deze soort - tik op een andere soort of kies "alle soorten"';
+        hintEl.textContent = 'beste ' + (clk.mode === 'sun' ? 'zon-uren' : 'uren')
+          + ' voor deze soort · kies "alle soorten" om te ontgrendelen';
         listEl.innerHTML = hrs.slice(0, 10).map(function (h, i) {
           var share = 100 * sp.hours[h] / sp.n;
-          return listRow(i + 1, hourLabel(h) + '–' + hourLabel((h + 1) % 24), share,
-            sp.hours[h] + '× (' + Math.round(share) + '% van alle waarnemingen)');
+          return listRow(i + 1, lblRange(h), share,
+            sp.hours[h] + '× (' + Math.round(share) + '% van alle waarnemingen)',
+            ' data-h="' + h + '"', h === clk.hour);
         }).join('') || '<div class="live-empty">nog geen waarnemingen</div>';
       } else {
         // P(species | hour): who sings at the selected hour?
@@ -3929,12 +3986,13 @@
         var rowsArr = clk.data.species
           .filter(function (s) { return s.hours[clk.hour] > 0; })
           .sort(function (a, b) { return b.hours[clk.hour] - a.hours[clk.hour]; });
-        hintEl.textContent = 'tik op een uur in de klok, of op een vogel voor zijn dagritme';
+        hintEl.textContent = 'tik op een blok in de klok, of op een vogel voor zijn dagritme';
         listEl.innerHTML = rowsArr.slice(0, 15).map(function (s, i) {
           var share = tot ? 100 * s.hours[clk.hour] / tot : 0;
           return listRow(i + 1, dispName(s.sci, s.com), share,
-            s.hours[clk.hour] + '× om dit uur · ' + Math.round(share) + '% van uur-activiteit', s.sci);
-        }).join('') || '<div class="live-empty">nog niets gehoord om ' + hourLabel(clk.hour) + '</div>';
+            s.hours[clk.hour] + '× in ' + blok + ' · ' + Math.round(share) + '% van de activiteit',
+            ' data-sci="' + adminEsc(s.sci) + '"');
+        }).join('') || '<div class="live-empty">nog niets gehoord in ' + lblRange(clk.hour) + '</div>';
       }
     }
     function fillSelect() {
@@ -3948,10 +4006,14 @@
     }
     function redraw() { drawDial(); drawList(); }
     function load() {
-      adminApi('./avian/api/birdnet-api.php?action=rhythm' + (clk.days ? '&days=' + clk.days : ''))
+      adminApi('./avian/api/birdnet-api.php?action=rhythm'
+          + (clk.days ? '&days=' + clk.days : '')
+          + (clk.mode === 'sun' ? '&mode=sun' : '')
+          + (clk.place ? '&place=' + clk.place : ''))
         .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
         .then(function (j) {
           clk.data = j;
+          if (clk.hour === null) clk.hour = defaultHour();
           if (clk.sci && !speciesEntry(clk.sci)) clk.sci = null;
           fillSelect();
           redraw();
@@ -3960,23 +4022,54 @@
           listEl.innerHTML = '<div class="live-empty">pi onbereikbaar</div>';
         });
     }
+    // The reisschema stops double as a place filter; the dropdown only
+    // appears when there is more than one stop to choose from.
+    adminApi('./avian/api/birdnet-api.php?action=locations')
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (j) {
+        var stops = j.locations || [];
+        if (stops.length < 2) return;
+        var placeEl = document.getElementById('clkPlace');
+        placeEl.innerHTML = '<option value="0">alle plekken</option>' + stops.map(function (s) {
+          return '<option value="' + s.id + '">' + adminEsc(s.label || s.from_ts.slice(0, 10)) + '</option>';
+        }).join('');
+        placeEl.hidden = false;
+        placeEl.addEventListener('change', function () {
+          clk.place = +placeEl.value || 0;
+          load();
+        });
+      })
+      .catch(function () {});
     dial.addEventListener('click', function (ev) {
       var w = ev.target.closest('.clk-wedge');
       if (!w) return;
+      // move the selected wedge; a locked species STAYS locked
       clk.hour = +w.getAttribute('data-h');
-      if (clk.sci) { clk.sci = null; fillSelect(); }   // wedge tap returns to hour mode
       redraw();
     });
     listEl.addEventListener('click', function (ev) {
-      var row = ev.target.closest('.clk-row[data-sci]');
-      if (!row) return;
-      clk.sci = row.getAttribute('data-sci');
-      fillSelect();
-      redraw();
+      var sciRow = ev.target.closest('.clk-row[data-sci]');
+      if (sciRow) {
+        clk.sci = sciRow.getAttribute('data-sci');
+        fillSelect();
+        redraw();
+        return;
+      }
+      var hRow = ev.target.closest('.clk-row[data-h]');
+      if (hRow) { clk.hour = +hRow.getAttribute('data-h'); redraw(); }
     });
     selEl.addEventListener('change', function () {
       clk.sci = selEl.value || null;
       redraw();
+    });
+    document.getElementById('clkModeSeg').addEventListener('click', function (ev) {
+      var b = ev.target.closest('button'); if (!b) return;
+      clk.mode = b.getAttribute('data-v') === 'sun' ? 'sun' : 'clock';
+      clk.hour = null;   // re-pick the "now" bucket in the new time base
+      this.querySelectorAll('button').forEach(function (x) {
+        x.setAttribute('aria-current', x === b ? 'true' : 'false');
+      });
+      load();
     });
     document.getElementById('clkDaysSeg').addEventListener('click', function (ev) {
       var b = ev.target.closest('button'); if (!b) return;

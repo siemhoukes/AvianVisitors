@@ -349,26 +349,76 @@ switch ($action) {
 
     case 'rhythm': {
         // Statistical backbone for the Vogelklok: how many moments each
-        // species has per hour-of-day. A moment is stamped with the hour
+        // species has per hour bucket. A moment is stamped with the hour
         // it STARTED (MIN time within the moment). The client derives
         // both directions from this one matrix:
         //   P(species | hour) = hours[h] / total_by_hour[h]  ("wie zingt nu?")
         //   P(hour | species) = hours[h] / n                 ("wanneer hoor ik X?")
-        // days=0/absent = all time; the date narrowing itself happens in
-        // av_moments_date_filter (feeds the moments temp table above).
+        // days=0/absent = all time (narrowing happens in av_moments_date_filter).
+        // mode=sun re-buckets every moment as HOURS SINCE SUNRISE on its own
+        // date and coordinates (birds keep solar time, not CEST) - bucket 0
+        // is sunrise, so seasons and places align. place=<reisschema id>
+        // restricts to that stop's time window.
         $days = max(0, min(365, (int)($_GET['days'] ?? 0)));
+        $sunMode = ($_GET['mode'] ?? 'clock') === 'sun';
+        $place = (int)($_GET['place'] ?? 0);
+
+        $tsFilter = '';
+        $placeLat = null; $placeLon = null;
+        if ($place > 0) {
+            $sched = schedule_rows_read($db);
+            foreach ($sched as $i => $stop) {
+                if ($stop['id'] !== $place) continue;
+                $tsFilter = " AND (Date || ' ' || Time) >= '"
+                    . SQLite3::escapeString(sched_sql_ts($stop['from_ts'])) . "'";
+                if ($i + 1 < count($sched)) {
+                    $tsFilter .= " AND (Date || ' ' || Time) < '"
+                        . SQLite3::escapeString(sched_sql_ts($sched[$i + 1]['from_ts'])) . "'";
+                }
+                $placeLat = $stop['lat']; $placeLon = $stop['lon'];
+                break;
+            }
+        }
+        // Reference coordinates: the chosen stop, else the configured site.
+        $refLat = $placeLat !== null ? $placeLat : (float)av_conf_value('LATITUDE', '52');
+        $refLon = $placeLon !== null ? $placeLon : (float)av_conf_value('LONGITUDE', '5');
+
+        // One row per (species, date, clock-hour, rough place): small enough
+        // to bucket in PHP, keeps per-date/per-place sunrise exact.
         $rs = rows($db,
-          "SELECT sci, MAX(com) AS com, hr, COUNT(*) AS n FROM ("
+          "SELECT sci, MAX(com) AS com, d, hr, la, lo, COUNT(*) AS n FROM ("
         . "  SELECT Sci_Name AS sci, MAX(Com_Name) AS com, moment_id, "
-        . "         CAST(strftime('%H', MIN(Date || ' ' || Time)) AS INTEGER) AS hr "
-        . "  FROM moments GROUP BY Sci_Name, moment_id"
-        . ") GROUP BY sci, hr"
+        . "         DATE(MIN(Date || ' ' || Time)) AS d, "
+        . "         CAST(strftime('%H', MIN(Date || ' ' || Time)) AS INTEGER) AS hr, "
+        . "         ROUND(MAX(Lat), 1) AS la, ROUND(MAX(Lon), 1) AS lo "
+        . "  FROM moments WHERE 1=1" . $tsFilter . " GROUP BY Sci_Name, moment_id"
+        . ") GROUP BY sci, d, hr, la, lo"
         );
+        // sunrise minute-of-day per (date, lat, lon), cached per request
+        $srCache = [];
+        $sunriseMin = function (string $d, $la, $lo) use (&$srCache, $refLat, $refLon) {
+            $lat = (is_numeric($la) && abs((float)$la) <= 90 && (float)$la != -1) ? (float)$la : $refLat;
+            $lon = (is_numeric($lo) && abs((float)$lo) <= 180 && (float)$lo != -1) ? (float)$lo : $refLon;
+            $key = $d . '/' . $lat . '/' . $lon;
+            if (!isset($srCache[$key])) {
+                $info = @date_sun_info(strtotime($d . ' 12:00:00'), $lat, $lon);
+                $srCache[$key] = (is_array($info) && is_int($info['sunrise'] ?? false))
+                    ? (int)date('G', $info['sunrise']) * 60 + (int)date('i', $info['sunrise'])
+                    : 360;   // polar edge case: pretend 06:00
+            }
+            return $srCache[$key];
+        };
         $bySci = [];
         $totalByHour = array_fill(0, 24, 0);
         foreach ($rs as $r) {
             $sci = (string)$r['sci'];
             $hr = max(0, min(23, (int)$r['hr']));
+            if ($sunMode) {
+                // bucket = whole hours since sunrise, taking the moment at
+                // the middle of its clock hour
+                $off = ($hr * 60 + 30) - $sunriseMin((string)$r['d'], $r['la'], $r['lo']);
+                $hr = (int)floor((($off % 1440) + 1440) % 1440 / 60);
+            }
             $n = (int)$r['n'];
             if (!isset($bySci[$sci])) {
                 $bySci[$sci] = ['sci' => $sci, 'com' => (string)($r['com'] ?? ''),
@@ -381,9 +431,22 @@ switch ($action) {
         $species = array_values($bySci);
         usort($species, function ($a, $b) { return $b['n'] <=> $a['n']; });
         $first = one($db, "SELECT MIN(Date) AS d FROM moments");
+        // Today's sun times at the reference spot - the frontend draws the
+        // sunrise/sunset markers (clock mode) and the sunset ring position
+        // (sun mode, via day_hours) from this.
+        $sunInfo = @date_sun_info(strtotime(date('Y-m-d') . ' 12:00:00'), $refLat, $refLon);
+        $sun = null;
+        if (is_array($sunInfo) && is_int($sunInfo['sunrise'] ?? false) && is_int($sunInfo['sunset'] ?? false)) {
+            $sun = ['sunrise' => date('H:i', $sunInfo['sunrise']),
+                    'sunset' => date('H:i', $sunInfo['sunset']),
+                    'day_hours' => round(($sunInfo['sunset'] - $sunInfo['sunrise']) / 3600, 2)];
+        }
         echo json_encode([
             'species' => $species,
             'total_by_hour' => $totalByHour,
+            'mode' => $sunMode ? 'sun' : 'clock',
+            'place' => $place ?: null,
+            'sun' => $sun,
             'days' => $days ?: null,
             'since' => $first['d'] ?? null,
             'as_of' => date('c'),

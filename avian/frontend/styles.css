@@ -1284,6 +1284,10 @@
   #clkDial .clk-cap { font: 700 14px ui-serif, Georgia, serif; fill: var(--ink); }
   #clkDial .clk-sub { font: 9.5px ui-monospace, Menlo, monospace; fill: var(--ink-soft); }
   #clkDial .clk-now { stroke: var(--accent); stroke-width: 1.5; opacity: .75; }
+  #clkDial .clk-sun { font-size: 11px; fill: var(--ink-2); }
+  .clk-list .clk-row.clk-sel .ln { font-weight: 700; }
+  .clk-list .clk-row.clk-sel .lt { color: var(--ink); }
+  .clk-list .clk-row[data-h] { cursor: pointer; }
   .clk-hint {
     margin: 6px 0 10px; text-align: center;
     font: 10px ui-monospace, Menlo, monospace; color: var(--ink-soft);
