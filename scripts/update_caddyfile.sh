@@ -68,9 +68,12 @@ http:// ${BIRDNETPI_URL} {
   handle /Charts/* {
     file_server browse
   }
+  # NB comment text below must stay free of backticks: this whole block is
+  # an UNQUOTED heredoc, so a backticked word executes as command
+  # substitution and silently drops out of the generated file.
   # Caddy path matchers never see the query string, so the upstream
   # "/views.php?view=File*" form silently matched nothing. A named matcher
-  # with a `query` clause is the working equivalent (the file manager iframe
+  # with a 'query' clause is the working equivalent (the file manager iframe
   # target under /scripts* is gated too - this covers the wrapper page).
   @fileview {
     path /views.php
