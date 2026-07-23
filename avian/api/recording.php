@@ -13,6 +13,12 @@
 
 declare(strict_types=1);
 
+// Clips may be MP3 (legacy) or WAV (AUDIOFMT=wav, lossless from the raw
+// segment). Serve whichever the file actually is.
+function av_audio_ctype(string $path): string {
+    return preg_match('/\.wav$/i', $path) ? 'audio/wav' : 'audio/mpeg';
+}
+
 $sci = trim((string)($_GET['sci'] ?? ''));
 $file = trim((string)($_GET['file'] ?? ''));
 
@@ -48,7 +54,7 @@ if ($file !== '') {
     // Allow Unicode letters so accented common names (DATABASE_LANG=fr etc.)
     // resolve; "/" is still excluded and ".." is rejected, so the value
     // stays a safe basename.
-    if (strpos($file, '..') !== false || !preg_match("/^[\\p{L}\\p{N}_.:'-]+\\.mp3$/u", $file)) {
+    if (strpos($file, '..') !== false || !preg_match("/^[\\p{L}\\p{N}_.:'-]+\\.(?:mp3|wav)$/u", $file)) {
         http_response_code(400);
         echo 'invalid file name';
         exit;
@@ -92,7 +98,7 @@ if ($file !== '') {
         exit;
     }
     $path = $candidates[0];
-    header('Content-Type: audio/mpeg');
+    header('Content-Type: ' . av_audio_ctype($path));
     header('Content-Length: ' . filesize($path));
     header('Cache-Control: public, max-age=86400');
     header('Accept-Ranges: bytes');
@@ -192,8 +198,10 @@ function newest_recording(string $rootDir, string $common): ?string {
         $files = scandir($speciesDir, SCANDIR_SORT_DESCENDING);
         if (!$files) continue;
         foreach ($files as $f) {
+            // Newest clip in either format (mp3 legacy / wav lossless). scandir
+            // DESCENDING + timestamped names => first match is the most recent.
             // Skip zero-byte / truncated files a purge may have left behind.
-            if (substr($f, -4) === '.mp3' && @filesize("$speciesDir/$f") >= 64) {
+            if (preg_match('/\.(?:mp3|wav)$/i', $f) && @filesize("$speciesDir/$f") >= 64) {
                 return "$speciesDir/$f";
             }
         }
@@ -209,7 +217,7 @@ if ($path === null || !is_file($path) || filesize($path) < 64) {
 }
 
 // ---- Serve ----
-header('Content-Type: audio/mpeg');
+header('Content-Type: ' . av_audio_ctype($path));
 header('Content-Length: ' . filesize($path));
 header('Cache-Control: public, max-age=60');
 header('Accept-Ranges: bytes');

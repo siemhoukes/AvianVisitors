@@ -1827,6 +1827,17 @@
     color: var(--ink-soft); letter-spacing: 0.06em;
     font-variant-numeric: tabular-nums;
   }
+  /* Right side of a recording row: confidence % + the download button, sharing
+     the row's single "auto" grid cell so the 3-column grid stays intact. */
+  .rec-row .rec-right { display: inline-flex; align-items: center; gap: 8px; }
+  .rec-row .rec-dl {
+    border: 0; background: none; cursor: pointer; padding: 4px;
+    color: var(--ink-soft); border-radius: 5px; line-height: 0;
+    display: inline-flex; align-items: center;
+  }
+  .rec-row .rec-dl svg { width: 13px; height: 13px; }
+  .rec-row .rec-dl:hover { color: var(--accent); background: var(--paper-2); }
+  .rec-row .rec-dl[data-busy="true"] { opacity: 0.5; pointer-events: none; }
   .rec-empty {
     padding: 14px;
     font: 11px/1.5 ui-serif, Georgia, serif; color: var(--ink-soft);

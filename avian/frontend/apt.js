@@ -1421,6 +1421,7 @@
   // Tiny inline icons - monochrome, ink-only, match the page palette.
   var ICON_PLAY = '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M3 2 L10 6 L3 10 Z"/></svg>';
   var ICON_PAUSE = '<svg viewBox="0 0 12 12" fill="currentColor"><rect x="3" y="2" width="2.5" height="8"/><rect x="6.5" y="2" width="2.5" height="8"/></svg>';
+  var ICON_DL = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.5 V7.3"/><path d="M3.4 5 L6 7.6 L8.6 5"/><path d="M2.5 10 H9.5"/></svg>';
 
   function renderAtlas(animate) {
     var grid = document.getElementById('atlasGrid');
@@ -2621,12 +2622,16 @@
           '<li class="rec-empty rec-locked">Log in om de opnames te beluisteren.</li>';
         return;
       }
+      var recName = dispName(sci, s.com);
       document.getElementById('modalRecordings').innerHTML = dets.length
         ? dets.map(function (d) {
-            return '<li class="rec-row" data-file="' + (d.file || '') + '" data-date="' + (d.d || '') + '">'
+            return '<li class="rec-row" data-file="' + (d.file || '') + '" data-date="' + (d.d || '') + '" data-time="' + (d.t || '') + '" data-name="' + escAttr(recName) + '">'
               + '<button class="play" type="button" aria-label="afspelen">' + ICON_PLAY + '</button>'
               + '<span class="when">' + fmtRecTime(d.d, d.t) + '<small>' + fmtDateLine(d.d, d.t) + '</small></span>'
-              + '<span class="conf">' + ((+d.conf || 0) * 100).toFixed(0) + '%</span>'
+              + '<span class="rec-right">'
+              +   '<span class="conf">' + ((+d.conf || 0) * 100).toFixed(0) + '%</span>'
+              +   '<button class="rec-dl" type="button" aria-label="download opname" title="download opname">' + ICON_DL + '</button>'
+              + '</span>'
               + '<div class="rec-spectro" aria-hidden="true">'
               +   '<div class="rec-spectro-loading">spectrogram laden...</div>'
               +   '<div class="rec-spectro-played"></div>'
@@ -4874,6 +4879,35 @@
     if (ev.target.closest('.switch') || ev.target.closest('.mod-name') || ev.target.closest('[data-bulk]')) return;
     // Locked notice (anonymous): tapping it opens the login drawer.
     if (ev.target.closest('.rec-locked')) { requireLogin(); return; }
+    // Download button (species popup only): fetch the clip WITH auth and save
+    // the original file (mp3 legacy / wav lossless). Reuses authedAudioUrl's
+    // cached blob, so if it was already played the download is instant. The
+    // saved name is <soort>_<datum>_<tijd> with the file's real extension.
+    var dlBtn = ev.target.closest('.rec-dl');
+    if (dlBtn) {
+      ev.stopPropagation();
+      var drow = dlBtn.closest('.rec-row');
+      var dfile = drow && drow.dataset.file;
+      if (!dfile) return;
+      var ext = (/\.(\w+)$/.exec(dfile) || [, 'mp3'])[1].toLowerCase();
+      var base = (drow.dataset.name || 'opname').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '');
+      var when = ((drow.dataset.date || '') + '_' + (drow.dataset.time || '')).replace(/:/g, '-').replace(/[^\w-]+/g, '_');
+      var fname = (base ? base + '_' : '') + when + '.' + ext;
+      dlBtn.setAttribute('data-busy', 'true');
+      authedAudioUrl('./avian/api/recording.php?file=' + encodeURIComponent(dfile))
+        .then(function (u) {
+          var a = document.createElement('a');
+          a.href = u; a.download = fname;
+          document.body.appendChild(a); a.click(); a.remove();
+          dlBtn.removeAttribute('data-busy');
+        })
+        .catch(function () {
+          dlBtn.removeAttribute('data-busy');
+          dlBtn.innerHTML = '<span style="font-size:8px">!</span>';
+          setTimeout(function () { dlBtn.innerHTML = ICON_DL; }, 1500);
+        });
+      return;
+    }
     // Scrub-region clicks are handled by the mousedown wiring below.
     if (ev.target.closest('.rec-spectro-scrub')) return;
 
