@@ -34,7 +34,9 @@ echo json_encode([
         ['label' => 'system',   'href' => '/#admin=system',   'native' => true],
         ['label' => 'live',     'href' => '/#admin=live',     'native' => true],
         ['label' => 'clock',    'href' => '/#admin=clock',    'native' => true],
-        ['label' => 'logs',     'href' => '/#admin=logs',     'native' => true],
+        // Vogelkans took the Logboek's drawer slot; the log is still reachable
+        // as a nav row inside Settings (same demotion Historie got).
+        ['label' => 'kans',     'href' => '/#admin=kans',     'native' => true],
         ['label' => 'tools',    'href' => '/#admin=tools',    'native' => true],
     ],
 ]);

@@ -95,6 +95,23 @@ def save_language(labels, language):
         f.write(json.dumps(OrderedDict(sorted(labels.items())), indent=2, ensure_ascii=False))
 
 
+def birdnet_week(d):
+    """Calendar date/datetime -> BirdNET's week number, 1..48.
+
+    BirdNET does NOT use ISO weeks. Its year is 48 weeks, 4 per month, and its
+    own V1 metadata encoder says so explicitly: it maps the week to
+    cos(week * 7.5 degrees), and 48 * 7.5 = 360. Anything above 48 is outside
+    the range model's training distribution and the output degrades sharply -
+    measured at Utrecht, weeks 1-48 predict 102-121 species above 0.05 while
+    week 49 predicts 236, in a visibly wrong order.
+
+    So any week handed to a model (BirdNetV1's metadata input, or MDataModel's
+    lat/lon/week) must come from here, never from isocalendar(), which returns
+    1..53 and therefore goes out of range every late December.
+    """
+    return (d.month - 1) * 4 + min(3, (d.day - 1) // 7) + 1
+
+
 def get_model_labels(model=None):
     if model is None:
         model = get_settings()['MODEL']

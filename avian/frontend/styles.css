@@ -1301,6 +1301,159 @@
   }
   .clk-list .clk-row[data-sci] { cursor: pointer; }
   .clk-list .clk-row[data-sci]:hover .ln { text-decoration: underline; text-underline-offset: 2px; }
+  /* Vogelkans (#admin=kans) - occurrence likelihood per place + week.
+     Leans on .admin-logs-toolbar / .seg / .live-feed / .live-row; only the
+     thumbnail column, the week scrubber and the group headings are new. */
+  .kans-toolbar { flex-wrap: wrap; }
+  .kans-toolbar select { max-width: 200px; }
+  .kans-toolbar input[type="search"] {
+    flex: 1; min-width: 140px;
+    font: 11px ui-monospace, Menlo, monospace;
+    padding: 5px 8px; border: 1px solid var(--rule); border-radius: 6px;
+    background: var(--paper); color: var(--ink);
+  }
+  .kans-weekbar { gap: 12px; }
+  .kans-weekbar-mid { justify-content: center; margin-top: 2px; }
+  #kansWeek { flex: 1; min-width: 160px; accent-color: var(--accent); }
+  /* Jaarring - the Vogelklok's idea turned to a year. Outer ring is the month,
+     subdivided into the four parts BirdNET's 48-week year uses; the inner ring
+     repeats those parts as a coarser target. */
+  .kans-ringwrap { display: flex; justify-content: center; margin-bottom: 2px; }
+  .kans-ring { width: min(250px, 72vw); height: auto; display: block; }
+  .kans-ring .mo, .kans-ring .qu { cursor: pointer; }
+  /* Deliberately no `transition: fill` on these: with fill coming from a
+     var(), a registered transition pins the computed fill to its first-paint
+     value and the ring stops following the light/dark theme entirely. */
+  .kans-ring .mo { fill: var(--paper); }
+  .kans-ring .mo:hover { fill: var(--paper-3); }
+  .kans-ring .mo.on { fill: var(--accent); }
+  .kans-ring .qu { fill: var(--paper-3); }
+  .kans-ring .qu:hover { fill: var(--ink-soft); }
+  .kans-ring .qu.on { fill: #5a7a3a; }
+  :root[data-theme="dark"] .kans-ring .qu.on { fill: #86ab63; }
+  .kans-ring .slot { fill: #5a7a3a; pointer-events: none; }
+  :root[data-theme="dark"] .kans-ring .slot { fill: #86ab63; }
+  .kans-ring .tick {
+    stroke: var(--ink-soft); stroke-width: .75; opacity: .28; pointer-events: none;
+  }
+  .kans-ring text { pointer-events: none; }
+  .kans-ring .mo-l {
+    font: 9px ui-monospace, Menlo, monospace; fill: var(--ink-soft); text-anchor: middle;
+  }
+  .kans-ring .mo-l.on { fill: var(--paper); }
+  .kans-ring .cap { font: 600 15px ui-serif, Georgia, serif; fill: var(--ink); text-anchor: middle; }
+  .kans-ring .sub {
+    font: 9px ui-monospace, Menlo, monospace; fill: var(--ink-soft); text-anchor: middle;
+  }
+  /* An outline on an SVG path boxes its bounding rect, which on a curved wedge
+     lands nowhere near the shape. Stroke the wedge itself instead. */
+  .kans-ring path:focus-visible {
+    outline: none; stroke: var(--ink); stroke-width: 2; paint-order: stroke;
+  }
+  .kans-weeklbl {
+    font: 11px ui-monospace, Menlo, monospace; color: var(--ink-2);
+    white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .kans-now {
+    flex: none; font: 10px ui-monospace, Menlo, monospace; letter-spacing: .08em;
+    padding: 5px 11px; border: 0; border-radius: 999px; cursor: pointer;
+    background: var(--pill); color: var(--ink-2); box-shadow: var(--edge);
+  }
+  .kans-now:hover:not(:disabled) { color: var(--ink); }
+  /* Disabled when you're already on the current week - the button doubles as
+     an indicator of whether you've scrubbed away from now. */
+  .kans-now:disabled { opacity: .35; cursor: default; box-shadow: none; }
+  .kans-results { list-style: none; margin: -8px 0 12px; padding: 0; }
+  .kans-results li {
+    padding: 6px 8px; border-radius: 6px; cursor: pointer;
+    font: 11.5px ui-monospace, Menlo, monospace; color: var(--ink-2);
+  }
+  .kans-results li:hover { background: var(--paper-2); }
+  .kans-results .kans-note { color: var(--ink-soft); cursor: default; }
+  .kans-results .kans-note:hover { background: none; }
+  .kans-hint {
+    margin: 6px 0 10px; text-align: center;
+    font: 10px ui-monospace, Menlo, monospace; color: var(--ink-soft);
+    letter-spacing: 0.04em;
+  }
+  /* Wider first column than .live-row's `auto` so the 40px thumb fits, and a
+     wider percentage column - these run to 100%, unlike the clock's shares. */
+  .kans-list .kans-row { grid-template-columns: 40px minmax(0,1fr) 72px 44px; }
+  .kans-list .kans-row .lt { position: relative; }
+  .kans-list .kans-row .lt img {
+    width: 40px; height: 40px; object-fit: contain; display: block;
+    /* Same language as the collage: birds you've actually had keep their
+       colour, the rest sit back. Saves a text label on every single row. */
+    filter: grayscale(1); opacity: .4;
+  }
+  .kans-list .kans-row.kans-got .lt img { filter: none; opacity: 1; }
+  .kans-list .kans-row.kans-got .ln { font-weight: 600; }
+  .kans-list .kans-row .lt .kans-got-mark {
+    top: -2px; right: -3px; width: 13px; height: 13px; font-size: 8px; line-height: 13px;
+  }
+  .kans-list .kans-row .lb i { background: #5a7a3a; }
+  .kans-head {
+    position: sticky; top: 0; z-index: 1;
+    margin: 10px 0 0; padding: 6px 0 4px;
+    background: var(--paper-2);
+    font: 10px ui-monospace, Menlo, monospace; color: var(--ink-2);
+    letter-spacing: 0.1em; text-transform: uppercase;
+    border-bottom: 1px solid var(--rule);
+  }
+  .kans-head:first-child { margin-top: 0; }
+  /* The sub-line is now just "Sci name · Familie" - short enough that the
+     inherited ellipsis is fine, so the phone override that used to unwrap it
+     for the status labels is gone with them. */
+
+  /* Vogelkans collage - the same data as a sticker album. Species the unit
+     has actually heard are in full colour; everything else is ghosted, so the
+     view reads as "what's still out there to catch". */
+  .kans-grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    max-height: 70vh; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--paper-2); border-radius: 8px; padding: 12px;
+  }
+  .kans-grid .kans-head {
+    grid-column: 1 / -1; background: var(--paper-2);
+  }
+  .kans-tile { margin: 0; text-align: center; }
+  .kans-tile-img {
+    position: relative; aspect-ratio: 1; display: flex;
+    align-items: center; justify-content: center;
+    background: var(--paper); border-radius: 8px; padding: 8px;
+  }
+  .kans-tile-img img {
+    max-width: 100%; max-height: 100%; object-fit: contain; display: block;
+    /* Not-yet-heard birds sit back: drained of colour and faded. Heard ones
+       get their full palette, which is the reward for filling the album. */
+    filter: grayscale(1); opacity: .38;
+    transition: filter 200ms ease, opacity 200ms ease;
+  }
+  .kans-tile.kans-got .kans-tile-img img { filter: none; opacity: 1; }
+  .kans-got-mark {
+    position: absolute; top: 5px; right: 6px;
+    width: 16px; height: 16px; border-radius: 999px;
+    background: #5a7a3a; color: #fff;
+    font: 10px/16px ui-monospace, Menlo, monospace; text-align: center;
+  }
+  .kans-tile figcaption {
+    display: flex; align-items: baseline; justify-content: center; gap: 5px;
+    margin-top: 5px; padding: 0 2px;
+  }
+  .kans-tile figcaption b {
+    font: 11.5px ui-serif, Georgia, serif; font-weight: 400; color: var(--ink-soft);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .kans-tile.kans-got figcaption b { color: var(--ink); font-weight: 600; }
+  .kans-tile-p {
+    font: 9.5px ui-monospace, Menlo, monospace; color: var(--ink-soft);
+    font-variant-numeric: tabular-nums; flex: none;
+  }
+  @media (max-width: 700px) {
+    .kans-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 10px; }
+    .kans-tile figcaption b { font-size: 10.5px; }
+  }
   /* Vogeldagboek (#admin=diary, hidden page) - editorial daily column */
   .diary-nav {
     display: flex; justify-content: center; gap: 8px; margin-bottom: 14px;

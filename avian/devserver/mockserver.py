@@ -19,6 +19,7 @@ import io
 import json
 import math
 import os
+import re
 import struct
 import sys
 import wave
@@ -162,6 +163,133 @@ def guesses_species_payload(hours):
     return {"species": out, "hours": hours, "now": now_iso()}
 
 
+# ---- Vogelkans (vogelkans.php) ----------------------------------------------
+# Unlike the other mocks this one is NOT canned: it loads the real BirdNET
+# range model and the real taxonomy.json, so the panel can be developed against
+# genuine numbers offline. Only "heard" is faked, from the mock SPECIES list.
+# The model is held in-process, so the ~1-2 s startup the Pi pays per cold
+# request happens once here and scrubbing the week is instant.
+REPO_ROOT = os.path.join(AVIAN, "..")
+_KANS = {"model": None, "labels": None, "tax": None, "nl": None, "art": None}
+
+
+class VogelkansUnavailable(Exception):
+    pass
+
+
+def _kans_week_now():
+    d = datetime.now()
+    return (d.month - 1) * 4 + min(3, (d.day - 1) // 7) + 1
+
+
+def _kans_load():
+    """Lazily load the range model + lookup tables. Raises if deps are absent."""
+    if _KANS["model"] is not None:
+        return
+    sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
+    try:
+        from utils.models import MDataModel2
+    except ImportError as e:      # no tensorflow / tflite_runtime on this box
+        raise VogelkansUnavailable(
+            f"range model unavailable ({e}) - pip install tensorflow") from e
+
+    labels_path = os.path.join(REPO_ROOT, "model",
+                               "BirdNET_GLOBAL_6K_V2.4_Model_FP16_Labels.txt")
+    tax_path = os.path.join(AVIAN, "data", "taxonomy.json")
+    nl_path = os.path.join(REPO_ROOT, "model", "l18n", "labels_nl.json")
+    if not os.path.isfile(tax_path):
+        raise VogelkansUnavailable(
+            "avian/data/taxonomy.json missing - run avian/scripts/fetch_taxonomy.py")
+
+    with open(labels_path, encoding="utf-8") as f:
+        _KANS["labels"] = [l.strip() for l in f if l.strip()]
+    with open(tax_path, encoding="utf-8") as f:
+        _KANS["tax"] = json.load(f)
+    with open(nl_path, encoding="utf-8") as f:
+        _KANS["nl"] = json.load(f)
+    illus = os.path.join(ASSETS, "illustrations")
+    _KANS["art"] = {re.sub(r"-2$", "", n[:-4])
+                    for n in os.listdir(illus) if n.endswith(".png")}
+    # Threshold is set per request; MDataModel2 takes it at construction, so
+    # keep one instance at the lowest threshold we serve and filter after.
+    _KANS["model"] = MDataModel2(0.0)
+
+
+def vogelkans_payload(q):
+    _kans_load()
+    lat = float(q.get("lat", ["52.09"])[0])
+    lon = float(q.get("lon", ["5.12"])[0])
+    week = max(1, min(48, int(q.get("week", [str(_kans_week_now())])[0])))
+    threshold = max(0.001, min(1.0, float(q.get("threshold", ["0.01"])[0])))
+
+    model = _KANS["model"]
+    # set_meta_data() already invalidates its cached result when lat/lon/week
+    # change, and keeps it when they don't - so re-scrubbing to a week you have
+    # already visited costs nothing.
+    model.set_meta_data(lat, lon, week)
+    scored = model.get_species_list_details(_KANS["labels"])
+
+    tax = _KANS["tax"]
+    groups, families, sp = tax["groups"], tax["families"], tax["sp"]
+    fallback = groups.index("Overig") if "Overig" in groups else len(groups) - 1
+    heard = {s for s, _, _ in SPECIES}
+
+    out, n_art, n_heard = [], 0, 0
+    for score, sci in scored:
+        p = float(score)
+        if p < threshold:
+            continue
+        t = sp.get(sci)
+        slug = re.sub(r"[^a-z0-9]+", "-", sci.lower()).strip("-")
+        has_art, has_heard = slug in _KANS["art"], sci in heard
+        n_art += has_art
+        n_heard += has_heard
+        out.append({
+            "sci": sci,
+            "nl": _KANS["nl"].get(sci),
+            "group": groups[t[0]] if t else groups[fallback],
+            "family": families[t[1]] if t else "",
+            "code": t[3] if t else None,
+            "p": round(p, 4),
+            "art": has_art,
+            "heard": has_heard,
+        })
+
+    return {"species": out, "groups": groups,
+            "counts": {"total": len(out), "art": n_art, "heard": n_heard},
+            "lat": lat, "lon": lon, "grid": {"lat": lat, "lon": lon},
+            "week": week, "weeks": 48, "threshold": threshold,
+            "as_of": now_iso()}
+
+
+# Mirrors cutout.php's ?w= downscale so the dev server exercises the same
+# bandwidth profile the Pi will. Pillow is optional here (it's in
+# avian/scripts/requirements.txt, not the Pi's) - without it we just serve the
+# full image, exactly as cutout.php does when GD is missing.
+_THUMBS = {}
+
+
+def _thumb(path, w):
+    key = (path, w, os.path.getmtime(path))
+    if key in _THUMBS:
+        return _THUMBS[key]
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        im = Image.open(path).convert("RGBA")
+        if im.width <= w:
+            return None
+        im = im.resize((w, max(1, round(im.height * w / im.width))), Image.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, "PNG", optimize=True)
+        _THUMBS[key] = buf.getvalue()
+        return _THUMBS[key]
+    except Exception:
+        return None
+
+
 def names_payload(lang):
     # Mirrors birdnet-api.php action=names: the real l18n labels file,
     # filtered to the species "in the DB" (our mock list).
@@ -178,9 +306,11 @@ def names_payload(lang):
 def recent_payload(hours=24, location=False):
     base = datetime.now()
     species = []
-    # "deze plek" is a smaller subset - only some species were heard at the
-    # CURRENT LATITUDE/LONGITUDE, exercising the filtered (not just relabeled)
-    # path so the empty/partial states are also testable offline.
+    # "deze plek" is a smaller subset - on the real Pi it means "every moment
+    # since the active reisschema stop" (time-anchored, see birdnet-api.php
+    # location=1). The mock has no per-detection dating tied to the schedule,
+    # so it just returns a reduced set to exercise the filtered (not relabeled)
+    # collage path and its empty/partial states offline.
     rows = SPECIES[:5] if location else SPECIES
     for i, (sci, com, n) in enumerate(rows):
         last = base - timedelta(minutes=7 * i + 3)
@@ -580,10 +710,19 @@ class Handler(BaseHTTPRequestHandler):
             pose = q.get("pose", ["1"])[0]
             slug = slugify(sci)
             suffix = "-2" if pose == "2" else ""
+            try:
+                w = int(q.get("w", ["0"])[0])
+            except ValueError:
+                w = 0
+            if w and not (32 <= w <= 400):
+                w = 0
             for cand in (os.path.join(ASSETS, "illustrations", f"{slug}{suffix}.png"),
                          os.path.join(ASSETS, "illustrations", f"{slug}.png"),
                          os.path.join(ASSETS, "cutouts", f"{slug}.png")):
                 if os.path.isfile(cand) and os.path.getsize(cand) > 1024:
+                    thumb = _thumb(cand, w) if w else None
+                    if thumb:
+                        return self._send(200, thumb, "image/png")
                     return self._file(cand, "image/png")
             return self._send(404, "no illustration")
         if path == "/avian/api/spectrogram.php":
@@ -637,9 +776,17 @@ class Handler(BaseHTTPRequestHandler):
                 {"label": "system", "href": "/#admin=system", "native": True},
                 {"label": "live", "href": "/#admin=live", "native": True},
                 {"label": "clock", "href": "/#admin=clock", "native": True},
-                {"label": "logs", "href": "/#admin=logs", "native": True},
+                {"label": "kans", "href": "/#admin=kans", "native": True},
                 {"label": "tools", "href": "/#admin=tools", "native": True},
             ]})
+        if path == "/avian/api/vogelkans.php":
+            if role == ROLE_ANON:
+                return self._401()
+            try:
+                payload = vogelkans_payload(q)
+            except VogelkansUnavailable as e:
+                return self._json({"error": str(e)}, 500)
+            return self._json(payload)
         if path == "/avian/api/guesses.php":
             if role == ROLE_ANON:
                 return self._401()

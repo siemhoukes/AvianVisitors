@@ -39,7 +39,54 @@ $pose = (int)($_GET['pose'] ?? 1);
 if ($pose < 1 || $pose > 99) $pose = 1;
 $poseSuffix = $pose === 1 ? '' : "-$pose";
 
+// Optional thumbnail width. The bundled illustrations average ~680 KB (they
+// are full-size renders meant for the collage and the detail modal), which is
+// fine for the handful an atlas page shows but not for the Vogelkans list -
+// scrolling its ~200 rows of 40px thumbs would otherwise pull ~130 MB, over
+// whatever connection the caravan happens to be on. ?w= serves a cached
+// downscale instead. Clamped to a sane band; 0 means "full size", the
+// behaviour every existing caller gets.
+$thumbW = (int)($_GET['w'] ?? 0);
+if ($thumbW !== 0 && ($thumbW < 32 || $thumbW > 400)) $thumbW = 0;
+
+// Build (once) and return a downscaled copy of $src, or null if we can't -
+// no GD, no writable cache dir, unreadable source. Callers fall back to the
+// full-size file, so a failure here costs bandwidth, never a broken image.
+function thumb_path(string $src, int $w): ?string {
+    if ($w <= 0 || !function_exists('imagecreatefrompng')) return null;
+    $dir = dirname(__DIR__, 3) . '/BirdSongs/Extracted/cutouts/thumb';
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) return null;
+    // mtime in the key so a regenerated illustration invalidates its thumb.
+    $key = md5($src . '|' . (string)@filemtime($src) . '|' . $w);
+    $out = "$dir/$key.png";
+    if (is_file($out) && filesize($out) > 256) return $out;
+
+    $im = @imagecreatefrompng($src);
+    if ($im === false) return null;
+    $sw = imagesx($im);
+    $sh = imagesy($im);
+    if ($sw <= 0 || $sh <= 0) { imagedestroy($im); return null; }
+    if ($sw <= $w) { imagedestroy($im); return null; }   // already small enough
+    $nh = max(1, (int)round($sh * ($w / $sw)));
+    $dst = imagecreatetruecolor($w, $nh);
+    // The illustrations are transparent PNGs; without these two the alpha
+    // channel is flattened to black.
+    imagealphablending($dst, false);
+    imagesavealpha($dst, true);
+    imagecopyresampled($dst, $im, 0, 0, 0, 0, $w, $nh, $sw, $sh);
+    $tmp = $out . '.tmp.' . getmypid();
+    $ok = @imagepng($dst, $tmp, 8);
+    imagedestroy($im);
+    imagedestroy($dst);
+    if (!$ok) { @unlink($tmp); return null; }
+    @rename($tmp, $out);
+    return is_file($out) ? $out : null;
+}
+
 function serve_png(string $path): void {
+    global $thumbW;
+    $t = thumb_path($path, $thumbW);
+    if ($t !== null) $path = $t;
     header('Content-Type: image/png');
     header('Cache-Control: public, max-age=86400');
     header('Content-Length: ' . (string)filesize($path));

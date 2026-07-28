@@ -512,6 +512,18 @@
     if (DATA.recent || DATA.lifelist) renderWindowDependent(false);
   });
 
+  // Which week picker the Vogelkans panel shows. Device-local like the theme
+  // and the name language - it's a taste thing, not a Pi setting. The ring is
+  // the default; the slider stays available for anyone who prefers dragging.
+  var KANS_PICKER = readLS('bird:kansPicker', 'ring') === 'slider' ? 'slider' : 'ring';
+  function setKansPicker(v) {
+    // No re-render needed: the switch lives in Settings, which owns the admin
+    // body while it's open, and renderAdminKans() reads KANS_PICKER fresh when
+    // you next navigate to the panel.
+    KANS_PICKER = v === 'slider' ? 'slider' : 'ring';
+    writeLS('bird:kansPicker', KANS_PICKER);
+  }
+
   // ---- Missing-illustration handling ----
   // A detected species with no usable cutout would otherwise render a
   // broken-image icon. Instead swap in a faint kachō-e placeholder and,
@@ -1887,13 +1899,16 @@
     // menu-row-nav row in renderAdminSettings) - deliberately not
     // duplicated here in the top-level drawer list.
     // Live mic stream: ONLY the pensionado tier may hear it (admin/Siem must
-    // not be able to eavesdrop live). Within that tier it's on by default but
-    // can be hidden per-device via the settings toggle.
-    var showLive = AV_CAPS.live && readLS('bird:liveaudio', 'on') === 'on';
+    // not be able to eavesdrop live). The player is shown only when the mic
+    // stream is actually running on the pi - the single source of truth is the
+    // pi-wide switch (Instellingen -> "Microfoon-stream op de pi"). We render
+    // the block hidden and reveal it once birdnet-status.php confirms the
+    // encoder is enabled, so a disabled stream shows no dead "luisteren" button.
+    var canLive = AV_CAPS.live;
     var roleLabel = AV_ROLE === 'pensionado' ? 'volledige toegang'
                   : AV_ROLE === 'admin' ? 'beheer (geen live)' : '';
     items.innerHTML =
-      '<div id="liveWrap"' + (showLive ? '' : ' hidden') + '>'
+      '<div id="liveWrap" hidden>'
       + '<div class="live-audio" id="liveAudio" data-on="false">'
       + '  <div class="pulse"></div>'
       + '  <div class="label">Live geluid<span class="hint">stream van de microfoon</span></div>'
@@ -1929,6 +1944,19 @@
     if (menuLinks) menuLinks.addEventListener('click', function (ev) {
       if (ev.target.closest('a')) closeDd();
     });
+
+    // Reveal the live player only if this tier may listen AND the pi encoder
+    // is actually enabled. Kept out of the initial HTML so a stopped stream
+    // never shows a "luisteren" button that would just error.
+    if (canLive) {
+      adminApi('./avian/api/birdnet-status.php?action=livestream')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var w = document.getElementById('liveWrap');
+          if (w && j && j.enabled) w.hidden = false;
+        })
+        .catch(function () {});
+    }
 
     // Live audio + realtime spectrogram. The audio element and the
     // FFT analyser share one AudioContext; once .play() is called the
@@ -3198,6 +3226,7 @@
     tools: 'Hulpmiddelen',
     moderation: 'Waarnemingen beheren',
     clock: 'Vogelklok',
+    kans: 'Vogelkans',
     diary: 'Vogeldagboek',
   };
   function adminEsc(s) {
@@ -3243,6 +3272,7 @@
     else if (section === 'live') renderAdminLive();
     else if (section === 'history') renderAdminHistory();
     else if (section === 'clock') renderAdminClock();
+    else if (section === 'kans') renderAdminKans();
     else if (section === 'diary') renderAdminDiary();
     else if (section === 'logs') renderAdminLogs();
     else if (section === 'tools') renderAdminTools();
@@ -3274,15 +3304,10 @@
       .then(function (cfg) {
         var v = cfg.values || {};
         var preserve = cfg.preserve;
-        var showLive = readLS('bird:liveaudio', 'on') === 'on';
-        // The live-audio toggle is only meaningful for the pensionado tier
-        // (admin can't hear the live mic at all), so only show it there.
-        var liveRow = AV_CAPS.live
-          ? '<div class="menu-row"><div><span class="label">Live geluid tonen</span><span class="hint">microfoon-stream in het menu</span></div>'
-            + '<button type="button" class="switch" role="switch" aria-checked="' + (showLive ? 'true' : 'false') + '" data-instant="liveaudio"></button></div>'
-          : '';
-        // The thorough variant of the toggle above: stops the ffmpeg
-        // encoder on the Pi itself (unit-wide, survives reboots).
+        // Single mic-stream control: this stops/starts the ffmpeg encoder on
+        // the pi itself (unit-wide, survives reboots). The drawer "luisteren"
+        // player follows this state - off = no player, on = player appears -
+        // so the old per-device "Live geluid tonen" toggle is gone.
         var streamRow = AV_CAPS.moderate
           ? '<div class="menu-row"><div><span class="label">Microfoon-stream op de pi</span><span class="hint">uit = encoder stopt echt; bespaart stroom en warmte</span></div>'
             + '<div class="seg" data-instant-seg="livestreampi" id="streamSeg">'
@@ -3296,6 +3321,13 @@
           + '<div class="seg" data-instant-seg="namelang" id="nameLangSeg">'
           + '<button type="button" data-v="nl" aria-current="' + (NAME_LANG === 'nl' ? 'true' : 'false') + '">nederlands</button>'
           + '<button type="button" data-v="en" aria-current="' + (NAME_LANG === 'en' ? 'true' : 'false') + '">engels</button>'
+          + '</div></div>';
+        // Which week picker the Vogelkans uses. Device-local, instant.
+        var kansPickerRow =
+          '<div class="menu-row"><div><span class="label">Vogelkans-weekkiezer</span><span class="hint">jaarring of schuifbalk &middot; op dit apparaat</span></div>'
+          + '<div class="seg" data-instant-seg="kanspicker" id="kansPickerSeg">'
+          + '<button type="button" data-v="ring" aria-current="' + (KANS_PICKER === 'ring' ? 'true' : 'false') + '">jaarring</button>'
+          + '<button type="button" data-v="slider" aria-current="' + (KANS_PICKER === 'slider' ? 'true' : 'false') + '">schuifbalk</button>'
           + '</div></div>';
         // Entry point into the hide/unhide screen for any logged-in tier.
         // Also reachable from the drawer link, but Siem wants it discoverable
@@ -3311,14 +3343,19 @@
         var histRow =
           '<div class="menu-row menu-row-nav"><div><span class="label">Historie</span><span class="hint">gok-archief: beste scores per soort</span></div>'
           + '<a class="menu-row-arrow" href="#admin=history" aria-label="openen">&rarr;</a></div>';
+        // Logboek did the same when the Vogelkans took its drawer slot.
+        var logRow =
+          '<div class="menu-row menu-row-nav"><div><span class="label">Logboek</span><span class="hint">ruwe logs van de diensten</span></div>'
+          + '<a class="menu-row-arrow" href="#admin=logs" aria-label="openen">&rarr;</a></div>';
         adminBody.innerHTML =
           '<div class="admin-settings">'
           + themeRow()
           + langRow
-          + liveRow
+          + kansPickerRow
           + streamRow
           + modRow
           + histRow
+          + logRow
           + '<div class="menu-row"><div><span class="label">Scherm-collage toont</span><span class="hint">wat het kleine scherm laat zien</span></div>'
           +   '<div class="seg" data-instant-seg="smalltvwindow">'
           +     ['8h:8 uur', '24h:24 uur', '7d:7 dagen', 'location:deze plek'].map(function (o) { var p = o.split(':'); return '<button type="button" data-v="' + p[0] + '">' + p[1] + '</button>'; }).join('')
@@ -3363,13 +3400,6 @@
         wireSettingsControls(adminBody);
         adminBody.querySelectorAll('.seg').forEach(wireToggleAdvance);   // open-space advance
         // Instant device/screen controls (NOT part of the Pi config save flow).
-        var liveSw = adminBody.querySelector('.switch[data-instant="liveaudio"]');
-        if (liveSw) liveSw.addEventListener('click', function () {
-          var on = liveSw.getAttribute('aria-checked') !== 'true';
-          liveSw.setAttribute('aria-checked', on ? 'true' : 'false');
-          writeLS('bird:liveaudio', on ? 'on' : 'off');
-          var w = document.getElementById('liveWrap'); if (w) w.hidden = !on;
-        });
         var tvSeg = adminBody.querySelector('.seg[data-instant-seg="smalltvwindow"]');
         if (tvSeg) {
           var markTv = function (wv) { tvSeg.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-current', b.dataset.v === wv ? 'true' : 'false'); }); };
@@ -3391,6 +3421,16 @@
           });
           setNameLang(b.dataset.v);
         });
+        // Vogelkans week picker - instant, device-local.
+        var kansPickerSeg = document.getElementById('kansPickerSeg');
+        if (kansPickerSeg) kansPickerSeg.addEventListener('click', function (ev) {
+          var b = ev.target.closest('button');
+          if (!b) return;
+          kansPickerSeg.querySelectorAll('button').forEach(function (x) {
+            x.setAttribute('aria-current', x === b ? 'true' : 'false');
+          });
+          setKansPicker(b.dataset.v);
+        });
         // Pi-wide livestream encoder switch. Buttons stay disabled until
         // the actual state arrives; a toggle POSTs and re-marks from the
         // response so the UI never lies about what the Pi is doing.
@@ -3401,6 +3441,14 @@
               b.disabled = !!busy;
               if (on !== null) b.setAttribute('aria-current', (b.dataset.v === (on ? 'on' : 'off')) ? 'true' : 'false');
             });
+            // Keep the drawer's live player in sync immediately - the drawer
+            // isn't rebuilt on reopen, so reflect the new state here. Gated on
+            // AV_CAPS.live so admin (who may toggle the stream) never gets a
+            // player revealed to them.
+            if (on !== null && !busy && AV_CAPS.live) {
+              var w = document.getElementById('liveWrap');
+              if (w) w.hidden = !on;
+            }
           };
           adminApi('./avian/api/birdnet-status.php?action=livestream')
             .then(function (r) { return r.ok ? r.json() : null; })
@@ -4143,6 +4191,435 @@
       });
       load();
     });
+    load();
+  }
+
+  function renderAdminKans() {
+    // Vogelkans (#admin=kans): which species BirdNET's range model expects at
+    // a place and week - the Merlin "likely birds" question, answered by the
+    // same model that already decides what the analyzer bothers listening for
+    // (SF_THRESH). Data comes from avian/api/vogelkans.php, which caches per
+    // 0.25-degree cell, so scrubbing the week is cheap after the first fetch.
+    //
+    // Sorting and filtering are done client-side on the fetched rows: the
+    // payload is ~150-250 species, and re-sorting without a round trip keeps
+    // the seg buttons instant.
+    var kans = {
+      data: null,
+      lat: null, lon: null,            // null = let the server use its own position
+      label: 'huidige plek',
+      week: kansWeekNow(),
+      sort: readLS('bird:kansSort', 'p'),
+      // Older builds stored 'art' here; anything unrecognised falls back to
+      // 'all' rather than leaving the seg with nothing selected.
+      filter: ['heard', 'new'].indexOf(readLS('bird:kansFilter', 'all')) !== -1
+              ? readLS('bird:kansFilter', 'all') : 'all',
+      view: readLS('bird:kansView', 'lijst') === 'collage' ? 'collage' : 'lijst',
+      busy: false,
+      serial: 0                        // guards against out-of-order responses
+    };
+    var MONTHS = ['januari', 'februari', 'maart', 'april', 'mei', 'juni',
+                  'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+    var MONTHS_SHORT = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun',
+                        'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+
+    // BirdNET's year is 48 weeks (4 per month), not 52 - see vogelkans.py.
+    function kansWeekNow() {
+      var d = new Date();
+      return d.getMonth() * 4 + Math.min(3, Math.floor((d.getDate() - 1) / 7)) + 1;
+    }
+    function weekLabel(w) {
+      return MONTHS[Math.floor((w - 1) / 4)] + ' · deel ' + (((w - 1) % 4) + 1) + '/4';
+    }
+
+    adminBody.innerHTML =
+      '<div class="admin-logs-toolbar kans-toolbar">'
+      + '  <select id="kansPlace"><option value="">huidige plek</option></select>'
+      + '  <input type="search" id="kansSearch" placeholder="of zoek een plek…" autocomplete="off">'
+      + '</div>'
+      + '<ul class="kans-results" id="kansResults"></ul>'
+      + (KANS_PICKER === 'ring'
+          ? '<div class="kans-ringwrap">'
+            + '  <svg class="kans-ring" id="kansRing" viewBox="0 0 260 260" role="group" aria-label="jaarring"></svg>'
+            + '</div>'
+            + '<div class="admin-logs-toolbar kans-toolbar kans-weekbar kans-weekbar-mid">'
+            + '  <span class="kans-weeklbl" id="kansWeekLbl">' + weekLabel(kans.week) + '</span>'
+            + '  <button type="button" class="kans-now" id="kansNow">nu</button>'
+            + '</div>'
+          : '<div class="admin-logs-toolbar kans-toolbar kans-weekbar">'
+            + '  <input type="range" id="kansWeek" min="1" max="48" value="' + kans.week + '" aria-label="week">'
+            + '  <span class="kans-weeklbl" id="kansWeekLbl">' + weekLabel(kans.week) + '</span>'
+            + '  <button type="button" class="kans-now" id="kansNow">nu</button>'
+            + '</div>')
+      + '<div class="admin-logs-toolbar kans-toolbar">'
+      + '  <div class="seg" id="kansSortSeg">'
+      + ['p:kans', 'naam:naam', 'groep:groep', 'groepkans:groep × kans'].map(function (o) {
+          var q = o.split(':');
+          return '<button type="button" data-v="' + q[0] + '" aria-current="'
+               + (kans.sort === q[0] ? 'true' : 'false') + '">' + q[1] + '</button>';
+        }).join('')
+      + '  </div>'
+      + '  <div class="seg" id="kansFilterSeg">'
+      + ['all:alles', 'heard:gehoord', 'new:nog niet'].map(function (o) {
+          var q = o.split(':');
+          return '<button type="button" data-v="' + q[0] + '" aria-current="'
+               + (kans.filter === q[0] ? 'true' : 'false') + '">' + q[1] + '</button>';
+        }).join('')
+      + '  </div>'
+      + '  <div class="seg" id="kansViewSeg">'
+      + ['lijst:lijst', 'collage:collage'].map(function (o) {
+          var q = o.split(':');
+          return '<button type="button" data-v="' + q[0] + '" aria-current="'
+               + (kans.view === q[0] ? 'true' : 'false') + '">' + q[1] + '</button>';
+        }).join('')
+      + '  </div>'
+      + '</div>'
+      + '<p class="kans-hint" id="kansHint"></p>'
+      + '<div class="live-feed kans-list" id="kansList"><div class="live-empty">kansen laden…</div></div>';
+
+    var listEl = document.getElementById('kansList');
+    var hintEl = document.getElementById('kansHint');
+    var weekEl = document.getElementById('kansWeek');      // null in ring mode
+    var ringEl = document.getElementById('kansRing');      // null in slider mode
+    var weekLblEl = document.getElementById('kansWeekLbl');
+    var nowEl = document.getElementById('kansNow');
+    var placeEl = document.getElementById('kansPlace');
+    var searchEl = document.getElementById('kansSearch');
+    var resultsEl = document.getElementById('kansResults');
+
+    function load() {
+      var mine = ++kans.serial;
+      kans.busy = true;
+      var url = './avian/api/vogelkans.php?week=' + kans.week;
+      if (kans.lat !== null && kans.lon !== null) {
+        url += '&lat=' + encodeURIComponent(kans.lat) + '&lon=' + encodeURIComponent(kans.lon);
+      }
+      adminApi(url)
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (j) {
+          if (mine !== kans.serial) return;   // a later scrub already won
+          kans.busy = false;
+          kans.data = j;
+          redraw();
+        })
+        .catch(function () {
+          if (mine !== kans.serial) return;
+          kans.busy = false;
+          kans.data = null;
+          hintEl.textContent = '';
+          listEl.innerHTML = '<div class="live-empty">pi onbereikbaar</div>';
+        });
+    }
+
+    function visible() {
+      var all = (kans.data && kans.data.species) || [];
+      if (kans.filter === 'heard') return all.filter(function (s) { return s.heard; });
+      if (kans.filter === 'new') return all.filter(function (s) { return !s.heard; });
+      return all;
+    }
+
+    function sortRows(rows) {
+      var groups = (kans.data && kans.data.groups) || [];
+      var byName = function (a, b) {
+        return dispName(a.sci, a.nl).localeCompare(dispName(b.sci, b.nl), 'nl');
+      };
+      var byP = function (a, b) { return b.p - a.p || byName(a, b); };
+      if (kans.sort === 'naam') return rows.slice().sort(byName);
+      if (kans.sort === 'p') return rows.slice().sort(byP);
+      // Both grouped sorts keep the groups in the fixed order bird-groups.json
+      // declares. Ranking groups by their best member instead made the whole
+      // page reshuffle every time you nudged the week - the one thing you're
+      // trying to read across is which birds move, and that's impossible if
+      // the scaffolding moves too. Only the ordering *within* a group differs:
+      // 'groep' is alphabetical, 'groepkans' is likeliest-first.
+      var rank = function (g) {
+        var i = groups.indexOf(g);
+        return i === -1 ? groups.length : i;
+      };
+      return rows.slice().sort(function (a, b) {
+        var d = rank(a.group) - rank(b.group);
+        if (d) return d;
+        if (a.group !== b.group) return a.group.localeCompare(b.group, 'nl');
+        return kans.sort === 'groepkans' ? byP(a, b) : byName(a, b);
+      });
+    }
+
+    function row(s) {
+      var name = dispName(s.sci, s.nl);
+      // w=96 keeps a 40px thumb crisp on a 2x screen. Without it each row
+      // would pull the full ~680 KB render - see the note in cutout.php.
+      var img = './avian/api/cutout.php?sci=' + encodeURIComponent(s.sci)
+              + (s.nl ? '&com=' + encodeURIComponent(s.nl) : '')
+              + '&w=96&v=' + SKETCH_VERSION;
+      // Heard/not-heard is carried the same way as in the collage - full
+      // colour + a check for the ones you've had, muted for the rest. That
+      // replaces the old "nog nooit gehoord" text on every row, which said
+      // the same thing far more loudly.
+      var sub = [adminEsc(s.sci)].concat(s.family ? [adminEsc(s.family)] : []).join(' · ');
+      return '<div class="live-row kans-row' + (s.heard ? ' kans-got' : '') + '"'
+           + ' data-sci="' + escAttr(s.sci) + '">'
+        + '<span class="lt"><img alt="" loading="lazy" src="' + escAttr(img) + '">'
+        +   (s.heard ? '<span class="kans-got-mark" title="ooit gehoord">&#10003;</span>' : '')
+        + '</span>'
+        + '<span class="ln">' + adminEsc(name) + '</span>'
+        + '<span class="lb"><i style="width:' + Math.max(1, Math.round(s.p * 100)) + '%"></i></span>'
+        + '<span class="lp">' + Math.round(s.p * 100) + '%</span>'
+        + '<span class="ls">' + sub + '</span>'
+        + '</div>';
+    }
+
+    // Collage tile. The point of this view is the seen/not-seen split, so it
+    // reads like a sticker album: species this unit has actually heard are in
+    // full colour, the rest are ghosted. Bigger thumb than the list rows -
+    // here the illustration IS the content.
+    function tile(s) {
+      var name = dispName(s.sci, s.nl);
+      var img = './avian/api/cutout.php?sci=' + encodeURIComponent(s.sci)
+              + (s.nl ? '&com=' + encodeURIComponent(s.nl) : '')
+              + '&w=200&v=' + SKETCH_VERSION;
+      return '<figure class="kans-tile' + (s.heard ? ' kans-got' : '')
+           + '" data-sci="' + escAttr(s.sci) + '">'
+        + '<div class="kans-tile-img">'
+        +   '<img alt="' + escAttr(name) + '" loading="lazy" decoding="async" src="' + escAttr(img) + '">'
+        +   (s.heard ? '<span class="kans-got-mark" title="ooit gehoord">&#10003;</span>' : '')
+        + '</div>'
+        + '<figcaption>'
+        +   '<b>' + adminEsc(name) + '</b>'
+        +   '<span class="kans-tile-p">' + Math.round(s.p * 100) + '%</span>'
+        + '</figcaption>'
+        + '</figure>';
+    }
+
+    function redraw() {
+      if (!kans.data) return;
+      var rows = sortRows(visible());
+      var c = kans.data.counts || {};
+      hintEl.textContent = kans.label + ' · ' + weekLabel(kans.week) + ' — '
+        + (c.total || 0) + ' soorten waarschijnlijk hier · '
+        + (c.heard || 0) + ' ooit gehoord';
+      var collage = kans.view === 'collage';
+      listEl.className = collage ? 'kans-grid' : 'live-feed kans-list';
+      if (!rows.length) {
+        listEl.innerHTML = '<div class="live-empty">niets in deze selectie</div>';
+        return;
+      }
+      var grouped = kans.sort === 'groep' || kans.sort === 'groepkans';
+      var html = '';
+      var seen = null;
+      rows.forEach(function (s) {
+        if (grouped && s.group !== seen) {
+          seen = s.group;
+          html += '<div class="kans-head">' + adminEsc(s.group) + '</div>';
+        }
+        html += collage ? tile(s) : row(s);
+      });
+      listEl.innerHTML = html;
+      // Missing art is expected here (that's what the "geen tekening" mark is
+      // for), so swap in the placeholder rather than reporting each one.
+      listEl.querySelectorAll('img').forEach(function (im) {
+        im.addEventListener('error', function () {
+          if (im.src !== PLACEHOLDER_IMG) im.src = PLACEHOLDER_IMG;
+        }, { once: true });
+      });
+    }
+
+    // Reisschema stops, so you can ask "what will be at the next stop in May?".
+    // Same shape the Vogelklok place filter uses.
+    adminApi('./avian/api/birdnet-api.php?action=locations')
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (j) {
+        var stops = (j && j.locations) || [];
+        if (!stops.length) return;
+        placeEl.innerHTML = '<option value="">huidige plek</option>'
+          + stops.map(function (s, i) {
+              var lbl = s.label || (s.from_ts || '').slice(0, 10) || ('stop ' + (i + 1));
+              return '<option value="' + i + '" data-lat="' + s.lat + '" data-lon="' + s.lon
+                   + '">' + adminEsc(lbl) + '</option>';
+            }).join('');
+      })
+      .catch(function () {});
+
+    placeEl.addEventListener('change', function () {
+      var opt = placeEl.selectedOptions[0];
+      if (!opt || opt.value === '') {
+        kans.lat = kans.lon = null;
+        kans.label = 'huidige plek';
+      } else {
+        kans.lat = +opt.getAttribute('data-lat');
+        kans.lon = +opt.getAttribute('data-lon');
+        kans.label = opt.textContent;
+      }
+      load();
+    });
+
+    // Standalone geocoder: the reisschema's doSchedSearch() drops a Leaflet
+    // pin, which this panel has no map for, so it only shares the endpoint.
+    var searchT = null;
+    searchEl.addEventListener('input', function () {
+      clearTimeout(searchT);
+      var q = searchEl.value.trim();
+      if (!q) { resultsEl.innerHTML = ''; return; }
+      searchT = setTimeout(function () {
+        adminApi('./avian/api/geocode.php?q=' + encodeURIComponent(q))
+          .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+          .then(function (j) {
+            var res = (j && j.results) || [];
+            resultsEl.innerHTML = res.length
+              ? res.map(function (r) {
+                  return '<li data-lat="' + r.lat + '" data-lon="' + r.lon + '" data-label="'
+                       + escAttr(r.label) + '">' + adminEsc(r.label) + '</li>';
+                }).join('')
+              : '<li class="kans-note">niets gevonden</li>';
+          })
+          .catch(function () { resultsEl.innerHTML = '<li class="kans-note">zoeken mislukt</li>'; });
+      }, 350);   // Nominatim asks for <= 1 req/s; this stays well under it
+    });
+
+    resultsEl.addEventListener('click', function (ev) {
+      var li = ev.target.closest('li[data-lat]');
+      if (!li) return;
+      kans.lat = +li.getAttribute('data-lat');
+      kans.lon = +li.getAttribute('data-lon');
+      kans.label = li.getAttribute('data-label') || 'gekozen plek';
+      placeEl.value = '';
+      resultsEl.innerHTML = '';
+      searchEl.value = '';
+      load();
+    });
+
+    // Scrubbing fires input events continuously; move the label immediately so
+    // the drag feels live, but debounce the fetch.
+    var weekT = null;
+    function setWeek(w, immediate) {
+      kans.week = Math.max(1, Math.min(48, w));
+      if (weekEl) weekEl.value = kans.week;
+      if (ringEl) drawRing();
+      weekLblEl.textContent = weekLabel(kans.week);
+      nowEl.disabled = kans.week === kansWeekNow();
+      clearTimeout(weekT);
+      weekT = setTimeout(load, immediate ? 0 : 150);
+    }
+    if (weekEl) weekEl.addEventListener('input', function () { setWeek(+weekEl.value || 1); });
+    nowEl.addEventListener('click', function () { setWeek(kansWeekNow(), true); });
+    nowEl.disabled = kans.week === kansWeekNow();
+
+    // ---- Jaarring -----------------------------------------------------
+    // A year is cyclic, so a ring is the honest shape for it: december and
+    // januari touch, which is exactly where migration wraps. Outer ring is the
+    // month, split into the four parts BirdNET's 48-week year uses - clicking
+    // three-quarters into a month lands on that part directly, so month and
+    // part are one tap. The inner ring stays as a coarser target for the part.
+    function ringXY(r, a) {
+      var t = (a - 90) * Math.PI / 180;
+      return [130 + r * Math.cos(t), 130 + r * Math.sin(t)];
+    }
+    function ringArc(r0, r1, a0, a1) {
+      var p = function (r, a) {
+        var c = ringXY(r, a);
+        return c[0].toFixed(2) + ',' + c[1].toFixed(2);
+      };
+      var big = (a1 - a0) > 180 ? 1 : 0;
+      return 'M' + p(r1, a0) + 'A' + r1 + ',' + r1 + ' 0 ' + big + ' 1 ' + p(r1, a1)
+           + 'L' + p(r0, a1) + 'A' + r0 + ',' + r0 + ' 0 ' + big + ' 0 ' + p(r0, a0) + 'Z';
+    }
+    function drawRing() {
+      if (!ringEl) return;
+      var m = Math.floor((kans.week - 1) / 4), q = (kans.week - 1) % 4, h = '', i, j;
+      for (i = 0; i < 12; i++) {
+        h += '<path class="mo' + (i === m ? ' on' : '') + '" data-m="' + i + '" tabindex="0"'
+           + ' role="button" aria-label="' + MONTHS[i] + '"'
+           + ' d="' + ringArc(82, 118, i * 30 + 1, (i + 1) * 30 - 1) + '"></path>';
+      }
+      h += '<path class="slot" d="'
+         + ringArc(112, 118, m * 30 + q * 7.5 + 1, m * 30 + (q + 1) * 7.5 - 1) + '"></path>';
+      for (i = 0; i < 12; i++) {
+        for (j = 1; j < 4; j++) {
+          var a = i * 30 + j * 7.5, p0 = ringXY(83, a), p1 = ringXY(117, a);
+          h += '<line class="tick" x1="' + p0[0].toFixed(1) + '" y1="' + p0[1].toFixed(1)
+             + '" x2="' + p1[0].toFixed(1) + '" y2="' + p1[1].toFixed(1) + '"></line>';
+        }
+      }
+      for (i = 0; i < 12; i++) {
+        var t = ringXY(100, i * 30 + 15);
+        h += '<text class="mo-l' + (i === m ? ' on' : '') + '" x="' + t[0].toFixed(1)
+           + '" y="' + (t[1] + 3).toFixed(1) + '">' + MONTHS_SHORT[i] + '</text>';
+      }
+      for (j = 0; j < 4; j++) {
+        h += '<path class="qu' + (j === q ? ' on' : '') + '" data-q="' + j + '" tabindex="0"'
+           + ' role="button" aria-label="deel ' + (j + 1) + ' van 4"'
+           + ' d="' + ringArc(56, 76, m * 30 + j * 7.5 + 0.6, m * 30 + (j + 1) * 7.5 - 0.6) + '"></path>';
+      }
+      h += '<text class="cap" x="130" y="126">' + MONTHS_SHORT[m] + '</text>'
+         + '<text class="sub" x="130" y="142">deel ' + (q + 1) + '/4</text>';
+      ringEl.innerHTML = h;
+    }
+    function ringAngle(ev) {
+      var ctm = ringEl.getScreenCTM();
+      if (!ctm) return null;
+      var pt = ringEl.createSVGPoint();
+      pt.x = ev.clientX; pt.y = ev.clientY;
+      var loc = pt.matrixTransform(ctm.inverse());
+      return ((Math.atan2(loc.y - 130, loc.x - 130) * 180 / Math.PI + 90) + 360) % 360;
+    }
+    function ringPick(p, ev) {
+      var w;
+      if (p.getAttribute('data-m') !== null) {
+        // Keyboard activation carries no coordinates, so it keeps the part.
+        var a = ev ? ringAngle(ev) : null;
+        w = a === null
+          ? (+p.getAttribute('data-m')) * 4 + ((kans.week - 1) % 4) + 1
+          : Math.min(11, Math.floor(a / 30)) * 4 + Math.min(3, Math.floor((a % 30) / 7.5)) + 1;
+      } else if (p.getAttribute('data-q') !== null) {
+        w = Math.floor((kans.week - 1) / 4) * 4 + (+p.getAttribute('data-q')) + 1;
+      } else { return; }
+      setWeek(w, true);
+    }
+    if (ringEl) {
+      ringEl.addEventListener('click', function (ev) {
+        var p = ev.target.closest('path'); if (p) ringPick(p, ev);
+      });
+      ringEl.addEventListener('keydown', function (ev) {
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        var p = ev.target.closest('path'); if (!p) return;
+        ev.preventDefault(); ringPick(p, null);
+      });
+      drawRing();
+    }
+
+    document.getElementById('kansSortSeg').addEventListener('click', function (ev) {
+      var b = ev.target.closest('button'); if (!b) return;
+      kans.sort = b.getAttribute('data-v');
+      writeLS('bird:kansSort', kans.sort);
+      this.querySelectorAll('button').forEach(function (x) {
+        x.setAttribute('aria-current', x === b ? 'true' : 'false');
+      });
+      redraw();
+    });
+
+    document.getElementById('kansFilterSeg').addEventListener('click', function (ev) {
+      var b = ev.target.closest('button'); if (!b) return;
+      kans.filter = b.getAttribute('data-v');
+      writeLS('bird:kansFilter', kans.filter);
+      this.querySelectorAll('button').forEach(function (x) {
+        x.setAttribute('aria-current', x === b ? 'true' : 'false');
+      });
+      redraw();
+    });
+
+    document.getElementById('kansViewSeg').addEventListener('click', function (ev) {
+      var b = ev.target.closest('button'); if (!b) return;
+      kans.view = b.getAttribute('data-v');
+      writeLS('bird:kansView', kans.view);
+      this.querySelectorAll('button').forEach(function (x) {
+        x.setAttribute('aria-current', x === b ? 'true' : 'false');
+      });
+      redraw();
+    });
+
+    // Deliberately no row -> detail-modal navigation: most rows here are
+    // species the unit has never detected, so they aren't in DATA and the
+    // modal would open empty. The row carries data-sci for future use.
+
     load();
   }
 

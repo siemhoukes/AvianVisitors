@@ -151,6 +151,12 @@ ${AUTH_BOTH}
   basicauth /avian/api/geocode.php* {
 ${AUTH_BOTH}
   }
+  # AvianVisitors: Vogelkans defaults lat/lon to the unit's own position when
+  # the caller doesn't pass one, so an open endpoint would answer "where is
+  # this box?" to anyone. Gate it like the rest of the location surface.
+  basicauth /avian/api/vogelkans.php* {
+${AUTH_BOTH}
+  }
   # AvianVisitors: the kaart/map reveals where you are + your travel stops, so
   # gate its data (locations/mapconfig/journey actions on birdnet-api.php). The
   # collage/atlas/stats (recent/species/stats actions) stay open for the family.

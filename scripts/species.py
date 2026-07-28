@@ -2,7 +2,7 @@ import argparse
 import datetime
 import os
 
-from utils.helpers import get_settings, MODEL_PATH
+from utils.helpers import get_settings, birdnet_week, MODEL_PATH
 from utils.models import MDataModel1, MDataModel2
 
 if __name__ == '__main__':
@@ -16,7 +16,9 @@ if __name__ == '__main__':
     conf = get_settings()
     lat = conf.getfloat('LATITUDE')
     lon = conf.getfloat('LONGITUDE')
-    week = datetime.datetime.today().isocalendar()[1]
+    # BirdNET's 1..48, matching what the analyzer actually runs with - an ISO
+    # week here would make this tool disagree with reality every December.
+    week = birdnet_week(datetime.date.today())
 
     print(f'Getting species list for {lat}/{lon}, Week {week}...', flush=True)
     labels_path = os.path.join(MODEL_PATH, 'labels.txt')
